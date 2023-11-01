@@ -24,6 +24,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 PASSWORD_FILE = os.path.join(BASE_DIR, 'secret.json')
 secrets = json.load(open(PASSWORD_FILE))
 SECRET_KEY = secrets['SECRET_KEY']
+AWS_ACCESS_KEY_ID = secrets['AWS_ACCESS_KEY_ID']
+AWS_SECRET_ACCESS_KEY = secrets['AWS_SECRET_ACCESS_KEY']
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True

@@ -9,4 +9,8 @@ urlpatterns = [
     path('edit/', views_users.user_edit, name='edit'),
     path('reset-password/', views_users.reset_password, name='reset_password'),
     path('delete-user/', views_users.delete_user, name='delete_user'),
+
+    path('profile/write', views_users.write_profile, name='write_profile'),
+    path('profile/edit', views_users.edit_profile, name='edit_profile'),
+    path('profile/<int:user_id>', views_users.view_profile, name='view_profile'),
 ]

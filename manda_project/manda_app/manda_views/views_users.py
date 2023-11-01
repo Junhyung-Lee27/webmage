@@ -1,4 +1,5 @@
 from rest_framework import status
+from django.shortcuts import get_object_or_404
 from django.contrib.auth import login, logout, authenticate
 from django.contrib.auth.models import User
 from django.contrib.auth.decorators import login_required
@@ -10,8 +11,10 @@ from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.authtoken.models import Token
-from ..serializers.user_serializer import UserSerializer, UserAuthenticationSerializer
+from ..serializers.user_serializer import UserSerializer, UserAuthenticationSerializer, UserProfileSerializer
 from .utils import generate_temp_password, send_temp_password_email
+from ..models import UserProfile
+from ..image_uploader import S3ImgUploader
 
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -95,3 +98,53 @@ def delete_user(request):
     user = request.user
     user.delete()
     return JsonResponse({'message': 'User deleted successfully.'})
+
+@swagger_auto_schema(method='post', request_body=UserProfileSerializer)
+@api_view(['POST'])
+def write_profile(request):
+    serializer = UserProfileSerializer(data=request.data)
+    if serializer.is_valid():
+        image_file = request.FILES['user_img']
+        url = S3ImgUploader(image_file).upload()
+        user_profile = UserProfile.objects.create(
+            user=User.objects.get(pk=request.data['user']),
+            user_image=url,
+            user_position=serializer.validated_data.get('user_position'),
+            user_info=serializer.validated_data.get('user_info'),
+            user_hash=serializer.validated_data.get('user_hash'),
+            success_count=serializer.validated_data.get('success_count')
+        )
+        response_serializer = UserProfileSerializer(user_profile)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['GET'])
+def view_profile(request, user_id):
+    user = User.objects.get(pk=user_id)
+    user_profile = UserProfile.objects.get(user=user)
+    object_key = user_profile.user_image
+    url = f'https://d3u19o4soz3vn3.cloudfront.net/img/{object_key}'
+
+    response_data = {
+        'user_id': user_id,
+        'username': user.username,
+        'user_img': url,
+        'user_position': user_profile.user_position,
+        'user_info': user_profile.user_info,
+        'user_hash': user_profile.user_hash,
+        'success_count': user_profile.success_count
+    }
+    return Response(response_data, status=status.HTTP_200_OK)
+
+@swagger_auto_schema(method='patch', request_body=UserProfileSerializer)
+@api_view(['PATCH'])
+def edit_profile(request):
+    user_profile = get_object_or_404(UserProfile, user=request.data.get('user'))
+    serializer = UserProfileSerializer(user_profile, data=request.data, partial=True)
+    if serializer.is_valid():
+        if 'user_img' in request.data:
+            url = S3ImgUploader(request.FILES['user_img'])
+            serializer.user_img = url.upload()
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
