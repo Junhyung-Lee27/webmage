@@ -26,13 +26,25 @@ def search_view(request):
         Q(user__username__icontains=search_query)
     ).distinct().prefetch_related('mandasub_set')
 
-    # entry
-    results = []
+    # 응답 데이터 준비
+    manda_simples = []
     for mandamain in combined_mandamains:
+        # 유저 정보 조회
+        user = mandamain.user
+
+        # 유저 프로필 조회
+        try:
+            userprofile = UserProfile.objects.get(user_id=user.id)
+            userposition = userprofile.user_position
+        except UserProfile.DoesNotExist:
+            userposition = None
+        
         main_entry = {
             'id': mandamain.id,
             'main_title': mandamain.main_title,
             'user_id': mandamain.user.id,
+            'username': user.username,
+            'userposition': userposition,
             'subs': []
         }
         
@@ -44,7 +56,11 @@ def search_view(request):
             }
             main_entry['subs'].append(sub_entry)
 
-        results.append(main_entry)
+        manda_simples.append(main_entry)
 
-    # 결과 반환
-    return Response(main_entry, status=status.HTTP_200_OK)
+    #### Feed 부분
+    
+
+    # 응답 반환
+    results = [manda_simples, ]
+    return Response(results, status=status.HTTP_200_OK)
