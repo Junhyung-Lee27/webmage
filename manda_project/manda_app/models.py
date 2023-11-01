@@ -1,7 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User  # User 모델을 가져오기
 from django.http import JsonResponse #
-
+from django.db.models import JSONField
 
 # Create your models here.
 
@@ -80,6 +80,7 @@ class Feed(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)  # 피드 생성일
     updated_at = models.DateTimeField(auto_now=True)  # 피드 업데이트일
     feed_hash = models.CharField(max_length=255)  # 피드 해시값, 필요에 따라 길이 조절 가능
+    emoji_count = JSONField(blank=True, null=True, default=dict)
 
     def __str__(self):
         return self.feed_contents
