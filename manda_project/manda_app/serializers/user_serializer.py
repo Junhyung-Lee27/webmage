@@ -26,7 +26,7 @@ def validate_max_length2(value):
     return value
 
 class UserProfileSerializer(serializers.ModelSerializer):
-    user_img = serializers.ImageField(max_length=None, use_url=True, write_only=True)
+    user_img = serializers.ImageField(max_length=None, use_url=True, write_only=True, required=False)
     user_position = serializers.CharField(validators=[validate_max_length])
     user_info = serializers.CharField(validators=[validate_max_length2])
     user_hash = serializers.CharField(validators=[validate_max_length])

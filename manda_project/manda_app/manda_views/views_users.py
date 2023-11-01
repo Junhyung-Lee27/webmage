@@ -4,6 +4,7 @@ from django.contrib.auth import login, logout, authenticate
 from django.contrib.auth.models import User
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.hashers import make_password
+from django.contrib.auth.hashers import check_password
 from django.http import HttpResponse, JsonResponse
 from django.middleware.csrf import get_token
 from rest_framework.parsers import JSONParser
@@ -93,22 +94,50 @@ def reset_password(request):
 
     return Response({'message': 'Temporary password has been sent to your email address.'}, status=status.HTTP_200_OK)
     
-@login_required
 @api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
 def delete_user(request):
     user = request.user
+
+    # request에서 비밀번호를 가져옴
+    password = request.data.get('password')
+
+    # 비밀번호 확인
+    if not password or not check_password(password, user.password):
+        return Response({"error": "비밀번호가 일치하지 않습니다."}, status=status.HTTP_400_BAD_REQUEST)
+
     user.delete()
     return JsonResponse({'message': 'User deleted successfully.'})
 
 @swagger_auto_schema(method='post', request_body=UserProfileSerializer)
 @api_view(['POST'])
 def write_profile(request):
+    # 아이디 변경 확인
+    new_username = request.data.get('username')
+    user = User.objects.get(pk=request.data['user'])
+
+    if new_username and new_username != user.username:
+        # username 중복 확인
+        if User.objects.filter(username=new_username).exists():
+            return Response({'error': '이미 사용되고 있는 닉네임입니다😢'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # UserProfileSerializer 검증
     serializer = UserProfileSerializer(data=request.data)
     if serializer.is_valid():
-        image_file = request.FILES['user_img']
-        url = S3ImgUploader(image_file).upload()
+        # 이미지 파일 처리
+        image_file = request.FILES.get('user_img')
+        if image_file:
+            url = S3ImgUploader(image_file).upload() 
+        else:
+            url = None
+
+        # 유저 username 변경
+        if new_username and new_username != user.username:
+            user.username = new_username
+            user.save()
+
         user_profile = UserProfile.objects.create(
-            user=User.objects.get(pk=request.data['user']),
+            user=user,
             user_image=url,
             user_position=serializer.validated_data.get('user_position'),
             user_info=serializer.validated_data.get('user_info'),
@@ -153,6 +182,17 @@ def view_profile(request, user_id):
 @api_view(['PATCH'])
 def edit_profile(request):
     user_profile = get_object_or_404(UserProfile, user=request.data.get('user'))
+    user = user_profile.user
+
+    # request.data에서 'username'이 있는 경우 User 모델의 username 변경
+    new_username = request.data.get('username')
+    if new_username and new_username != user.username:
+        # username 중복 확인
+        if User.objects.filter(username=new_username).exists():
+            return Response({'error': '이미 사용되고 있는 닉네임입니다😢'}, status=status.HTTP_400_BAD_REQUEST)
+        user.username = new_username
+        user.save()
+
     serializer = UserProfileSerializer(user_profile, data=request.data, partial=True)
     if serializer.is_valid():
         if 'user_img' in request.data:
