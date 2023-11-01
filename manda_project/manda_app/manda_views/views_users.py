@@ -122,20 +122,31 @@ def write_profile(request):
 @api_view(['GET'])
 def view_profile(request, user_id):
     user = User.objects.get(pk=user_id)
-    user_profile = UserProfile.objects.get(user=user)
-    object_key = user_profile.user_image
-    url = f'https://d3u19o4soz3vn3.cloudfront.net/img/{object_key}'
 
+    # 기본 response_data 설정
     response_data = {
         'user_id': user_id,
         'username': user.username,
-        'user_img': url,
-        'user_position': user_profile.user_position,
-        'user_info': user_profile.user_info,
-        'user_hash': user_profile.user_hash,
-        'user_email': user.email,
-        'success_count': user_profile.success_count
+        'user_email': user.email
     }
+
+    try:
+        user_profile = UserProfile.objects.get(user=user)
+        object_key = user_profile.user_image
+        url = f'https://d3u19o4soz3vn3.cloudfront.net/img/{object_key}'
+
+        # UserProfile이 있을 때의 추가 정보
+        response_data.update({
+            'user_img': url,
+            'user_position': user_profile.user_position,
+            'user_info': user_profile.user_info,
+            'user_hash': user_profile.user_hash,
+            'success_count': user_profile.success_count
+        })
+
+    except UserProfile.DoesNotExist:
+        pass
+    
     return Response(response_data, status=status.HTTP_200_OK)
 
 @swagger_auto_schema(method='patch', request_body=UserProfileSerializer)
