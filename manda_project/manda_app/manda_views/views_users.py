@@ -132,6 +132,7 @@ def view_profile(request, user_id):
         'user_position': user_profile.user_position,
         'user_info': user_profile.user_info,
         'user_hash': user_profile.user_hash,
+        'user_email': user.email,
         'success_count': user_profile.success_count
     }
     return Response(response_data, status=status.HTTP_200_OK)
