@@ -10,11 +10,13 @@ from django.db.models import Q
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
+# 검색 요청을 처리하는 API 뷰
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def search_view(request):
-    search_query = request.GET.get('query', '').strip()
+    search_query = request.GET.get('query', '').strip()  # 검색어 가져오기
 
+    # 검색어가 없으면 기본 탐색 결과 반환, 있으면 해당 검색어에 따른 결과 반환
     if not search_query:
         manda_simples = retrieve_manda_simples_for_explore()
         feeds = retrieve_feeds_for_explore()
@@ -31,12 +33,12 @@ def search_view(request):
     }
     return Response(results, status=status.HTTP_200_OK)
 
-
+# 기본 탐색을 위한 MandaMain 객체 반환 함수
 def retrieve_manda_simples_for_explore():
     combined_mandamains = MandaMain.objects.all().order_by('-id')[:20]
     return build_manda_simple_data(combined_mandamains)
 
-
+# 검색어에 따른 MandaMain 객체 반환 함수
 def retrieve_manda_simples(query):
     combined_mandamains = MandaMain.objects.filter(
         Q(main_title__icontains=query) |
@@ -44,7 +46,7 @@ def retrieve_manda_simples(query):
     ).prefetch_related('mandasub_set', 'user__profile')[:20]
     return build_manda_simple_data(combined_mandamains)
 
-
+# MandaMain 객체로부터 간단한 데이터 구조화
 def build_manda_simple_data(mandamains):
     manda_simples = []
     for mandamain in mandamains:
@@ -63,12 +65,12 @@ def build_manda_simple_data(mandamains):
         manda_simples.append(main_entry)
     return manda_simples
 
-
+# 기본 탐색을 위한 Feed 객체 반환 함수
 def retrieve_feeds_for_explore():
     combined_feeds = Feed.objects.all().order_by('-created_at')[:20]
     return build_feeds_data(combined_feeds)
 
-
+# 검색어에 따른 Feed 객체 반환 함수
 def retrieve_feeds(query):
     combined_feeds = Feed.objects.filter(
         Q(main_id__main_title__icontains=query) |
@@ -80,7 +82,7 @@ def retrieve_feeds(query):
     ).select_related('user', 'user__profile', 'main_id', 'sub_id', 'cont_id').prefetch_related('comment_set')[:20]
     return build_feeds_data(combined_feeds)
 
-
+# Feed 객체로부터 데이터 구조화
 def build_feeds_data(feeds):
     feed_entries = []
     for feed in feeds:
@@ -118,12 +120,12 @@ def build_feeds_data(feeds):
         feed_entries.append(feed_entry)
     return feed_entries
 
-
+# 기본 탐색을 위한 User 객체 반환 함수
 def retrieve_users_for_explore():
     combined_users = User.objects.all().order_by('-date_joined')[:20]
     return build_users_data(combined_users)
 
-
+# 검색어에 따른 User 객체 반환 함수
 def retrieve_users(query):
     combined_users = User.objects.filter(
         Q(username__icontains=query) |
@@ -132,7 +134,7 @@ def retrieve_users(query):
     ).select_related('profile')[:20]
     return build_users_data(combined_users)
 
-
+# User 객체로부터 데이터 구조화
 def build_users_data(users):
     user_entries = []
     for user in users:
