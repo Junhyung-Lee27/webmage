@@ -1,13 +1,10 @@
 from rest_framework import status
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_list_or_404
 from django.contrib.auth.models import User
 from rest_framework.response import Response
-from django.http import HttpResponse, JsonResponse
+from ..models import MandaMain, MandaSub, MandaContent, UserProfile, Feed, Comment
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from ..models import MandaMain, MandaSub, MandaContent, UserProfile
-from ..serializers.manda_serializer import *
-import json
 from django.db.models import Q
 
 from drf_yasg.utils import swagger_auto_schema
@@ -16,51 +13,136 @@ from drf_yasg import openapi
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def search_view(request):
-    search_query = request.GET.get('query', '')
+    search_query = request.GET.get('query', '').strip()
 
-    #### MandaSimple 부분
-    # 1. MandaMain의 main_title에 포함될 경우
-    # 2. User의 username에 포함될 경우
+    if not search_query:
+        manda_simples = retrieve_manda_simples_for_explore()
+        feeds = retrieve_feeds_for_explore()
+        users = retrieve_users_for_explore()
+    else:
+        manda_simples = retrieve_manda_simples(search_query)
+        feeds = retrieve_feeds(search_query)
+        users = retrieve_users(search_query)
+
+    results = {
+        'manda_simples': manda_simples,
+        'feeds': feeds,
+        'users': users
+    }
+    return Response(results, status=status.HTTP_200_OK)
+
+
+def retrieve_manda_simples_for_explore():
+    combined_mandamains = MandaMain.objects.all().order_by('-id')[:20]
+    return build_manda_simple_data(combined_mandamains)
+
+
+def retrieve_manda_simples(query):
     combined_mandamains = MandaMain.objects.filter(
-        Q(main_title__icontains=search_query) |
-        Q(user__username__icontains=search_query)
-    ).distinct().prefetch_related('mandasub_set')
+        Q(main_title__icontains=query) |
+        Q(user__username__icontains=query)
+    ).prefetch_related('mandasub_set', 'user__profile')[:20]
+    return build_manda_simple_data(combined_mandamains)
 
-    # 응답 데이터 준비
+
+def build_manda_simple_data(mandamains):
     manda_simples = []
-    for mandamain in combined_mandamains:
-        # 유저 정보 조회
+    for mandamain in mandamains:
         user = mandamain.user
+        userprofile = user.profile if hasattr(user, 'profile') else None
+        userposition = userprofile.user_position if userprofile else None
 
-        # 유저 프로필 조회
-        try:
-            userprofile = UserProfile.objects.get(user_id=user.id)
-            userposition = userprofile.user_position
-        except UserProfile.DoesNotExist:
-            userposition = None
-        
         main_entry = {
             'id': mandamain.id,
             'main_title': mandamain.main_title,
-            'user_id': mandamain.user.id,
+            'user_id': user.id,
             'username': user.username,
             'userposition': userposition,
-            'subs': []
+            'subs': [{'id': sub.id, 'success': sub.success, 'sub_title': sub.sub_title} for sub in mandamain.mandasub_set.all()]
         }
-        
-        for sub in mandamain.mandasub_set.all():
-            sub_entry = {
-                'id': sub.id,
-                'success': sub.success,
-                'sub_title': sub.sub_title
-            }
-            main_entry['subs'].append(sub_entry)
-
         manda_simples.append(main_entry)
+    return manda_simples
 
-    #### Feed 부분
-    
 
-    # 응답 반환
-    results = [manda_simples, ]
-    return Response(results, status=status.HTTP_200_OK)
+def retrieve_feeds_for_explore():
+    combined_feeds = Feed.objects.all().order_by('-created_at')[:20]
+    return build_feeds_data(combined_feeds)
+
+
+def retrieve_feeds(query):
+    combined_feeds = Feed.objects.filter(
+        Q(main_id__main_title__icontains=query) |
+        Q(sub_id__sub_title__icontains=query) |
+        Q(cont_id__content__icontains=query) |
+        Q(feed_contents__icontains=query) |
+        Q(user__username__icontains=query) |
+        Q(user__profile__user_position__icontains=query)
+    ).select_related('user', 'user__profile', 'main_id', 'sub_id', 'cont_id').prefetch_related('comment_set')[:20]
+    return build_feeds_data(combined_feeds)
+
+
+def build_feeds_data(feeds):
+    feed_entries = []
+    for feed in feeds:
+        user = feed.user
+        userprofile = user.profile if hasattr(user, 'profile') else None
+
+        main_title = feed.main_id.main_title
+        sub_title = feed.sub_id.sub_title
+        content = feed.cont_id.content
+
+        comments_list = [
+            {'username': comment.user.username, 'comment': comment.comment, 'upload_date': comment.created_at} for comment in feed.comment_set.all()
+        ]
+
+        feed_entry = {
+            'userInfo': {
+                'profile_img': userprofile.user_image if userprofile else None,
+                'userPosition': userprofile.user_position if userprofile else None,
+                'success': userprofile.success_count if userprofile else None,
+                'userName': user.username,
+            },
+            'contentInfo': {
+                'id': feed.id,
+                'main_title': main_title,
+                'sub_title': sub_title,
+                'content': content,
+                'post': feed.feed_contents,
+                'content_img': str(feed.feed_image),
+                'created_at': feed.created_at,
+                'tags': feed.feed_hash,
+                'emoji_count': feed.emoji_count,
+                'comment_info': comments_list
+            }
+        }
+        feed_entries.append(feed_entry)
+    return feed_entries
+
+
+def retrieve_users_for_explore():
+    combined_users = User.objects.all().order_by('-date_joined')[:20]
+    return build_users_data(combined_users)
+
+
+def retrieve_users(query):
+    combined_users = User.objects.filter(
+        Q(username__icontains=query) |
+        Q(profile__user_position__icontains=query) |
+        Q(profile__user_hash__icontains=query)
+    ).select_related('profile')[:20]
+    return build_users_data(combined_users)
+
+
+def build_users_data(users):
+    user_entries = []
+    for user in users:
+        userprofile = user.profile if hasattr(user, 'profile') else None
+
+        user_entry = {
+            'username': user.username,
+            'user_image': userprofile.user_image if userprofile else None,
+            'user_position': userprofile.user_position if userprofile else None,
+            'user_hash': userprofile.user_hash if userprofile else None
+        }
+        user_entries.append(user_entry)
+    return user_entries
