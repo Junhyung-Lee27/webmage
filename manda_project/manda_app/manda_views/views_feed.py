@@ -13,9 +13,46 @@ from django.db.models import Count, Q
 # Get feed of a specific user
 @api_view(['GET'])
 def return_feed(request, user_id):
-    feed_objects = Feed.objects.filter(user=user_id)
-    serializer = FeedSerializer(feed_objects, many=True)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    user = request.GET.get('query')
+    feeds = Feed.objects.filter(user=user_id)
+
+    # 데이터 구조화
+    feed_entries = []
+    for feed in feeds:
+        user = feed.user
+        userprofile = user.profile if hasattr(user, 'profile') else None
+
+        main_title = feed.main_id.main_title
+        sub_title = feed.sub_id.sub_title
+        content = feed.cont_id.content
+
+        comments_list = [
+            {'username': comment.user.username, 'comment': comment.comment, 'upload_date': comment.created_at} for comment in feed.comment_set.all()
+        ]
+
+        feed_entry = {
+            'userInfo': {
+                'profile_img': userprofile.user_image if userprofile else None,
+                'userPosition': userprofile.user_position if userprofile else None,
+                'success': userprofile.success_count if userprofile else None,
+                'userName': user.username,
+            },
+            'contentInfo': {
+                'id': feed.id,
+                'main_title': main_title,
+                'sub_title': sub_title,
+                'content': content,
+                'post': feed.feed_contents,
+                'content_img': str(feed.feed_image),
+                'created_at': feed.created_at,
+                'tags': feed.feed_hash,
+                'emoji_count': feed.emoji_count,
+                'comment_info': comments_list
+            }
+        }
+        feed_entries.append(feed_entry)
+        
+    return Response(feed_entries)
 
 # Get feed logs for a specific user
 @api_view(['GET'])
