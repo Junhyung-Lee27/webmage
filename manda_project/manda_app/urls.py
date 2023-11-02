@@ -14,7 +14,6 @@ from .manda_urls.urls_chat import urlpatterns as manda_chat_urls
 from .manda_urls.urls_search import urlpatterns as manda_search_urls
 
 urlpatterns = [
-    path('v1/test/', TestView.as_view(), name='test'),
     path('', views.main, name='main'),
     path('user/', include(manda_user_urls)), #회원가입, 로그인, 로그아웃
     path('write/', include(manda_write_urls)), #글 작성, 글 선택
