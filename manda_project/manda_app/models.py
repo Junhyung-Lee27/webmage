@@ -85,6 +85,21 @@ class Feed(models.Model):
     def __str__(self):
         return self.feed_contents
 
+#TodoList
+class TodoList(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)  # user_id 외래 키
+    main_id = models.ForeignKey(MandaMain, on_delete=models.CASCADE)  # MandaMain 모델과 외래키로 연결
+    sub_id = models.ForeignKey(MandaSub, on_delete=models.CASCADE)  # MandaSub 모델과 외래키로 연결
+    cont_id = models.ForeignKey(MandaContent, on_delete=models.CASCADE)  # MandaContent 모델과 외래키로 연결
+    title = models.CharField(max_length=100)  # 할일 제목, 필요에 따라 길이 조절 가능
+    due_date = models.DateTimeField()  # 마감일
+
+    class Meta:
+        ordering = ['id']
+
+    def __str__(self):
+        return self.title
+    
 #댓글
 class Comment(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -136,3 +151,4 @@ class ChatMessage(models.Model):
         super().save(*args, **kwargs)
         self.chatroom.latest_message_time = self.created_at
         self.chatroom.save()
+
