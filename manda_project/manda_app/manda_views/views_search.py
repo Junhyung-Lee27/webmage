@@ -11,6 +11,46 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 # 검색 요청을 처리하는 API 뷰
+# 만다 심플 API
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def search_manda_simples(request):
+    search_query = request.GET.get('query', '').strip()
+
+    if not search_query:
+        manda_simples = retrieve_manda_simples_for_explore()
+    else:
+        manda_simples = retrieve_manda_simples(search_query)
+
+    return Response(manda_simples, status=status.HTTP_200_OK)
+
+# 피드 API
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def search_feeds(request):
+    search_query = request.GET.get('query', '').strip()
+
+    if not search_query:
+        feeds = retrieve_feeds_for_explore()
+    else:
+        feeds = retrieve_feeds(search_query)
+
+    return Response(feeds, status=status.HTTP_200_OK)
+
+# 유저 추천 API
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def search_users(request):
+    search_query = request.GET.get('query', '').strip()
+
+    if not search_query:
+        users = retrieve_users_for_explore()
+    else:
+        users = retrieve_users(search_query)
+
+    return Response(users, status=status.HTTP_200_OK)
+
+# 만다심플, 피드, 유저 API
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def search_view(request):
@@ -130,7 +170,8 @@ def retrieve_users(query):
     combined_users = User.objects.filter(
         Q(username__icontains=query) |
         Q(profile__user_position__icontains=query) |
-        Q(profile__user_hash__icontains=query)
+        Q(profile__user_hash__icontains=query) |
+        Q(profile__user_info__icontains=query)
     ).select_related('profile')[:20]
     return build_users_data(combined_users)
 
