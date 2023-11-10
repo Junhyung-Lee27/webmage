@@ -5,8 +5,8 @@ from django.core.validators import MaxLengthValidator
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
-        model = User
-        fields = ('username', 'email', 'password')
+        model = UserProfile
+        fields = ('username', 'email', 'password', 'provider')
         extra_kwargs = {'password': {'write_only': True}}
 
 class UserAuthenticationSerializer(serializers.Serializer):
@@ -26,7 +26,7 @@ def validate_max_length2(value):
     return value
 
 class UserProfileSerializer(serializers.ModelSerializer):
-    user_img = serializers.ImageField(max_length=None, use_url=True, write_only=True, required=False)
+    user_image = serializers.CharField(required=False, allow_blank=True)
     user_position = serializers.CharField(validators=[validate_max_length])
     user_info = serializers.CharField(validators=[validate_max_length2])
     user_hash = serializers.CharField(validators=[validate_max_length])
@@ -34,4 +34,4 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserProfile
-        fields = ('user', 'user_img', 'user_position', 'user_info', 'user_hash', 'success_count')
+        fields = ('user_image', 'user_position', 'user_info', 'user_hash', 'success_count')
