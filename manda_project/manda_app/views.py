@@ -3,11 +3,12 @@ from django.http import JsonResponse
 from .models import Feed
 
 from django.middleware.csrf import get_token
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
 
 from rest_framework import permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
 
 # Create your views here.
 def main(request):
@@ -25,6 +26,7 @@ class TestView(APIView):
         return Response("Swagger 연동 테스트")
 
 @api_view(['GET'])
+@permission_classes([AllowAny])
 def get_csrf_token(request):
     csrf_token = get_token(request)
     return JsonResponse({'csrf_token': csrf_token})

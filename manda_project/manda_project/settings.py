@@ -53,8 +53,10 @@ INSTALLED_APPS = [
     'channels',
     'channels_redis',
     'corsheaders',
-    'psycopg2'
+    'psycopg2',
 ]
+
+AUTH_USER_MODEL = 'manda_app.UserProfile'
 
 MIDDLEWARE = [
     # cors 설정은 최상단
@@ -72,10 +74,12 @@ MIDDLEWARE = [
 ]
 
 REST_FRAMEWORK = {
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework.authentication.TokenAuthentication',
     ),
-    # 다른 설정 ...
 }
 
 ROOT_URLCONF = 'manda_project.urls'
@@ -102,17 +106,7 @@ WSGI_APPLICATION = 'manda_project.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': secrets['postgresql_name'],
-        'USER': secrets['postgresql_user'],
-        'PASSWORD': secrets['postgresql_pwd'],
-        'HOST': secrets['postgresql_host'],
-        'PORT': secrets['postgresql_port'],
-    }
-}
-
+DATABASES = secrets["DATABASES_LOCAL"]
 
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
@@ -195,29 +189,40 @@ CORS_ALLOW_METHODS = (
 
 # CORS 허용 헤더 추가
 CORS_ALLOW_HEADERS = (
+    'access-control-allow-credentials',
+    'access-control-allow-origin',
+    'access-control-request-method',
+    'access-control-request-headers',
     'accept',
     'accept-encoding',
+    'accept-language',
     'authorization',
+    'connection',
     'content-type',
     'dnt',
+    'credentials',
+    'host',
     'origin',
     'user-agent',
-    'x-csrftoken',
+    'X-CSRFToken',
+    'csrftoken',
     'x-requested-with',
 )
 
 # CORS white list
 CORS_ORIGIN_WHITELIST = [
-    'http://52.79.233.211',
     'http://localhost:8000',
     'http://127.0.0.1:8000',
-    'http://116.33.55.44:3000',
-    'http://116.33.55.44',
+    'http://localhost:3000'
+]
+
+# CSRF
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
     'http://localhost:3000',
 ]
 
-# 외부 사이트에서의 요청에 대한 쿠키 전송 차단
-# Strict : 모두 차단, Lax : POST 요청에 대해 쿠키 전송 차단, None : 모든 요청에 대해 쿠키 전송
-# https에서만 전송하도록 설정하려면 SESSION(CSRF)_COOKIE_SECURE = True
-SESSION_COOKIE_SAMESITE = 'None'
-CSRF_COOKIE_SAMESITE = 'None'
+# 외부 사이트에서의 요청에 대한 쿠키 전송 설정
+CSRF_COOKIE_SAMESITE = 'Lax'  # Strict, Lax
+SESSION_COOKIE_SAMESITE = 'Lax' # Strict, Lax
