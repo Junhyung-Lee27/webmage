@@ -50,32 +50,39 @@ def user_logout(requet):
 def sign_up(request):
     serializer = UserSerializer(data=request.data)
 
-    # 유효성 검증 성공
+    # 가입 요청 데이터의 유효성 검증 성공
     if serializer.is_valid():
         provider = serializer.validated_data.get('provider')
         
-        # username이 변경된 사용자는 기존 계정으로 로그인
+        # 이메일 사용자일 경우 provider에 숫자 1 더함 (<- EMAIL 사용자 간에 구분하기 위함)
+        if provider == "EMAIL":
+          provider_count = UserProfile.objects.filter(provider__startswith=provider).count()
+          provider = f"{provider}{provider_count + 1}"
+        
+        # username을 변경한 사용자의 경우 변경된 username으로 로그인하도록 함
         if UserProfile.objects.filter(provider=provider).exists():
             user = UserProfile.objects.get(provider=provider)
             username = user.username
-            # username을 변경한 사용자의 경우 변경된 username으로 로그인하도록 함
+            
             if serializer.validated_data.get('username') != username:
                 return JsonResponse({'username': username}, status=status.HTTP_200_OK)
         
-        # 신규 사용자
+        # 신규 회원가입
         password = make_password(serializer.validated_data['password'])
         serializer.validated_data['password'] = password
+        serializer.validated_data['provider'] = provider
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
         
-    # 유효성 검증 실패
+    # 가입 요청 데이터의 유효성 검증 실패
     else:
+        provider = serializer.data.get('provider')
         errors = serializer.errors
 
         # username 중복 케이스
         if 'username' in errors and 'username already exists' in errors['username'][0].lower():
             
-            # 소셜 회원가입의 경우 -> 기존 사용자 로그인
+            # 이미 소셜 회원가입한 사용자의 경우 -> 기존 사용자 로그인
             if 'EMAIL' not in provider:
                 username = serializer.data['username']
                 password = serializer.data['password']
@@ -121,8 +128,8 @@ def user_edit(request):
 def reset_password(request):
     email = request.data['email']
     try:
-        user = User.objects.get(email=email)
-    except User.DoesNotExist:
+        user = UserProfile.objects.get(email=email)
+    except UserProfile.DoesNotExist:
         return Response({'error': 'User with this email address does not exist.'}, status=status.HTTP_404_NOT_FOUND)
 
     temp_password = generate_temp_password()
@@ -153,11 +160,11 @@ def delete_user(request):
 def write_profile(request):
     # 아이디 변경 확인
     new_username = request.data.get('username')
-    user = User.objects.get(pk=request.data['user'])
+    user = UserProfile.objects.get(pk=request.data['user'])
 
     if new_username and new_username != user.username:
         # username 중복 확인
-        if User.objects.filter(username=new_username).exists():
+        if UserProfile.objects.filter(username=new_username).exists():
             return Response({'error': '이미 사용되고 있는 닉네임입니다😢'}, status=status.HTTP_400_BAD_REQUEST)
     
     # UserProfileSerializer 검증
@@ -188,8 +195,8 @@ def write_profile(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['GET'])
-def view_profile(request, user_id):
-    user = User.objects.get(pk=user_id)
+def view_profile(reqeust, user_id):
+    user = UserProfile.objects.get(id=user_id)
 
     # 기본 response_data 설정
     response_data = {
@@ -199,17 +206,16 @@ def view_profile(request, user_id):
     }
 
     try:
-        user_profile = UserProfile.objects.get(user=user)
-        object_key = user_profile.user_image
+        object_key = user.user_image
         url = f'https://d3u19o4soz3vn3.cloudfront.net/img/{object_key}'
 
         # UserProfile이 있을 때의 추가 정보
         response_data.update({
-            'user_img': url,
-            'user_position': user_profile.user_position,
-            'user_info': user_profile.user_info,
-            'user_hash': user_profile.user_hash,
-            'success_count': user_profile.success_count
+            'user_image': url,
+            'user_position': user.user_position,
+            'user_info': user.user_info,
+            'user_hash': user.user_hash,
+            'success_count': user.success_count
         })
 
     except UserProfile.DoesNotExist:
@@ -227,7 +233,7 @@ def edit_profile(request):
     new_username = request.data.get('username')
     if new_username and new_username != user.username:
         # username 중복 확인
-        if User.objects.filter(username=new_username).exists():
+        if UserProfile.objects.filter(username=new_username).exists():
             return Response({'error': '이미 사용되고 있는 닉네임입니다😢'}, status=status.HTTP_400_BAD_REQUEST)
         user.username = new_username
         user.save()
