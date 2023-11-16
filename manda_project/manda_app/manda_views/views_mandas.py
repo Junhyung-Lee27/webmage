@@ -4,8 +4,8 @@ from django.contrib.auth.models import User
 from rest_framework.response import Response
 from django.http import HttpResponse, JsonResponse
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from ..models import MandaMain, MandaSub, MandaContent
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from ..models import MandaMain, MandaSub, MandaContent, UserProfile
 from ..serializers.manda_serializer import *
 import json
 
@@ -113,7 +113,7 @@ def update_manda_subs(request):
             new_value = sub_data.get('sub_title')
 
             try:
-                manda_sub = MandaSub.objects.get(id=sub_id, main_id__user=user)
+                manda_sub = MandaSub.objects.get(id=sub_id, main_id_id__user=user.id)
             except MandaSub.DoesNotExist:
                 return Response(f"MandaSub with ID {sub_id} does not exist for the current user.", status=status.HTTP_404_NOT_FOUND)
             
@@ -209,8 +209,8 @@ def select_mandalart(request, manda_id):
 @api_view(['GET'])
 def manda_main_list(request, user_id):
     try:
-        user = User.objects.get(pk=user_id)
-    except User.DoesNotExist:
+        user = UserProfile.objects.get(pk=user_id)
+    except user.DoesNotExist:
         return Response(f"해당 유저가 존재하지 않습니다.", status=status.HTTP_404_NOT_FOUND)
     manda_main_objects = MandaMain.objects.filter(user=user)
     serializer = MandaMainSerializer(manda_main_objects, many=True)
