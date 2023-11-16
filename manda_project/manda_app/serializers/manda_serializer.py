@@ -7,8 +7,8 @@ class MandaMainSerializer(serializers.ModelSerializer):
         fields = ('id', 'user', 'main_title', 'success')
 
     def validate_main_title(self, value):
-        if len(value) > 30:
-            raise serializers.ValidationError("title은 30자 이하여야 합니다.")
+        if len(value) > 50:
+            raise serializers.ValidationError("핵심목표는 50글자 이하여야 합니다.")
         return value
 
 class MandaContentSerializer(serializers.ModelSerializer):
@@ -32,7 +32,7 @@ class MandaMainViewSerializer(serializers.ModelSerializer):
 
 class MandaSubUpdateSerializer(serializers.Serializer):
     id = serializers.IntegerField()
-    sub_title = serializers.CharField()
+    sub_title = serializers.CharField(allow_blank=True)
 
     def validate_sub_title(self, value):
         if len(value) > 50:
@@ -41,7 +41,7 @@ class MandaSubUpdateSerializer(serializers.Serializer):
     
 class MandaContentUpdateSerializer(serializers.Serializer):
     id = serializers.IntegerField()
-    content = serializers.CharField()
+    content = serializers.CharField(allow_blank=True)
     success_count = serializers.IntegerField()
 
     def validate_content(self, value):
