@@ -7,7 +7,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from ..models import MandaMain, MandaSub, MandaContent, UserProfile
 from ..serializers.manda_serializer import *
-import json
+from django.db.models import Max
 
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -191,11 +191,24 @@ def manda_main_delete(request, manda_id):
 def select_mandalart(request, manda_id):
     manda_main = MandaMain.objects.get(id=manda_id)
     manda_main_serializer = MandaMainViewSerializer(manda_main)
-    
+
+    # 1. MandaSub와 MandaContent의 success_count 최대값을 구함
+    max_success_count_sub = MandaSub.objects.aggregate(Max('success_count'))['success_count__max'] or 0
+    max_success_count_content = MandaContent.objects.aggregate(Max('success_count'))['success_count__max'] or 0
+    max_success_count = max(max_success_count_sub, max_success_count_content)
+
+    # 2. MandaSub 객체 각각의 success_count 백분율 계산
     manda_sub_objects = MandaSub.objects.filter(main_id=manda_main)
+    for subs in manda_sub_objects:
+        percentile = subs.success_count / max_success_count if max_success_count else 0
+        subs.color_percentile = round(percentile * 100, 2)
     manda_sub_serializer = MandaSubSerializer(manda_sub_objects, many=True)
 
+    # 3. MandaContent 객체 각각의 success_count 백분율 계산
     manda_content_objects = MandaContent.objects.filter(sub_id__in=manda_sub_objects)
+    for obj in manda_content_objects:
+        percentile = obj.success_count / max_success_count if max_success_count else 0
+        obj.color_percentile = round(percentile * 100, 2)
     manda_content_serializer = MandaContentSerializer(manda_content_objects, many=True)
 
     response_data = {
