@@ -52,7 +52,7 @@ class MandaMain(models.Model):
 #세부목표
 class MandaSub(models.Model):
     main_id = models.ForeignKey(MandaMain, on_delete=models.CASCADE)  # MandaMain 모델과 외래키로 연결
-    success = models.BooleanField(default=False)  # 성공 여부 (True/False)
+    success_count = models.IntegerField(default=0)  # 성공 여부, bigint 타입
     sub_title = models.CharField(max_length=100, null=True)  # 서브 타이틀, 최대 길이 50
 
     class Meta:
@@ -64,7 +64,7 @@ class MandaSub(models.Model):
 #실천목표
 class MandaContent(models.Model):
     sub_id = models.ForeignKey(MandaSub, on_delete=models.CASCADE)  # 외래키로 MandaSub와 연결
-    success_count = models.BigIntegerField(default=0)  # 성공 여부, bigint 타입
+    success_count = models.IntegerField(default=0)  # 성공 여부, bigint 타입
     content = models.CharField(max_length=100, null=True)  # 콘텐츠, 최대 길이 50
 
     class Meta:
