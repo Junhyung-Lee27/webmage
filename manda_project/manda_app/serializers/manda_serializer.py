@@ -12,16 +12,19 @@ class MandaMainSerializer(serializers.ModelSerializer):
         return value
 
 class MandaContentSerializer(serializers.ModelSerializer):
+    color_percentile = serializers.FloatField(read_only=True)
+
     class Meta:
         model = MandaContent
-        fields = ('id', 'sub_id', 'success_count', 'content')
+        fields = ('id', 'sub_id', 'success_count', 'content', 'color_percentile')
 
 class MandaSubSerializer(serializers.ModelSerializer):
     content = MandaContentSerializer(many=True, read_only=True)
+    color_percentile = serializers.FloatField(read_only=True)
     
     class Meta:
         model = MandaSub
-        fields = ('id', 'main_id', 'success', 'sub_title', 'content')
+        fields = ('id', 'main_id', 'success_count', 'sub_title', 'content', 'color_percentile')
 
 class MandaMainViewSerializer(serializers.ModelSerializer):
     sub_instances = MandaSubSerializer(many=True, read_only=True)
@@ -32,21 +35,22 @@ class MandaMainViewSerializer(serializers.ModelSerializer):
 
 class MandaSubUpdateSerializer(serializers.Serializer):
     id = serializers.IntegerField()
-    sub_title = serializers.CharField(allow_blank=True)
+    sub_title = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    success_count = serializers.IntegerField(required=False)
 
     def validate_sub_title(self, value):
-        if len(value) > 50:
+        if value is not None and len(value) > 50:
             raise serializers.ValidationError("세부 목표는 50글자 이하여야 합니다.")
         return value
     
 class MandaContentUpdateSerializer(serializers.Serializer):
     id = serializers.IntegerField()
-    content = serializers.CharField(allow_blank=True)
-    success_count = serializers.IntegerField()
+    content = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    success_count = serializers.IntegerField(required=False)
 
     def validate_content(self, value):
-        if len(value) > 50:
-            raise serializers.ValidationError("내용은 50글자 이하여야 합니다.")
+        if value is not None and len(value) > 50:
+          raise serializers.ValidationError("내용은 50글자 이하여야 합니다.")
         return value
 
 manda_sub_update_schema = {
@@ -56,9 +60,9 @@ manda_sub_update_schema = {
         "properties": {
             "id": {"type": "integer"},
             "sub_title": {"type": "string"},
-            "success": {"type": "boolean"}
+            "success_count": {"type": "integer"}
         },
-        "required": ["id", "sub_title", "success"]
+        "required": ["id", "sub_title"]
     }
 }
 
@@ -71,6 +75,6 @@ manda_content_update_schema = {
             "content": {"type": "string"},
             "success_count": {"type": "integer"}
         },
-        "required": ["id", "content", "success_count"]
+        "required": ["id", "content"]
     }
 }
