@@ -1,4 +1,5 @@
 from rest_framework import status
+from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.models import User
 from rest_framework.response import Response
@@ -168,18 +169,20 @@ def update_manda_contents(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @swagger_auto_schema(
-    method='delete',
+    method='post',
     manual_parameters=[
         openapi.Parameter('manda_id', openapi.IN_PATH, description='Manda ID', type=openapi.TYPE_INTEGER),
     ]
 )
-@api_view(['DELETE'])
-@permission_classes([IsAuthenticated])
+@api_view(['POST'])
 def manda_main_delete(request, manda_id):
     user = request.user
     manda_main = get_object_or_404(MandaMain, id=manda_id, user=user)
-    manda_main.delete()
-    return Response({'message': 'MandaMain deleted successfully.'}, status=status.HTTP_204_NO_CONTENT)
+
+    manda_main.deleted_at = timezone.now()
+    manda_main.save()
+
+    return Response({'message': 'MandaMain soft deleted successfully.'}, status=status.HTTP_200_OK)
 
 @swagger_auto_schema(
     method='get',
@@ -225,7 +228,7 @@ def manda_main_list(request, user_id):
         user = UserProfile.objects.get(pk=user_id)
     except user.DoesNotExist:
         return Response(f"해당 유저가 존재하지 않습니다.", status=status.HTTP_404_NOT_FOUND)
-    manda_main_objects = MandaMain.objects.filter(user=user)
+    manda_main_objects = MandaMain.objects.filter(user=user, deleted_at__isnull=True)
     serializer = MandaMainSerializer(manda_main_objects, many=True)
     return Response(serializer.data, status=status.HTTP_200_OK)
 

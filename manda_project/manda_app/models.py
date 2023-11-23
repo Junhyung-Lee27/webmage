@@ -15,6 +15,9 @@ class UserProfile(AbstractUser):
     user_hash = models.CharField(max_length=255, verbose_name="해시태그", null=True)
     success_count = models.IntegerField(verbose_name="만다라트 실천 횟수", default=0)
     provider = models.CharField(max_length=50, verbose_name="가입 방법", default="EMAIL")
+    created_at = models.DateTimeField(auto_now_add=True, null=True)  # 가입한 일시
+    updated_at = models.DateTimeField(auto_now=True, null=True)  # 프로필 정보 업데이트 일시
+    deleted_at = models.DateTimeField(null=True) # 탈퇴한 일시
 
     REQUIRED_FIELDS = ['email']
 
@@ -29,6 +32,8 @@ class MandaMain(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)  # 외래키로 User 모델 연결
     success = models.BooleanField(default=False)  # 성공 여부 (True/False)
     main_title = models.CharField(max_length=100)  # 메인 타이틀, 필요에 따라 길이 조절 가능
+    created_at = models.DateTimeField(auto_now_add=True, null=True)  # 만다라트 생성일시
+    deleted_at = models.DateTimeField(null=True)  # 만다라트 삭제일시
 
     class Meta:
         ordering = ['id']
@@ -83,6 +88,7 @@ class Feed(models.Model):
     feed_image = models.ImageField(upload_to='feed_images/')  # 이미지를 저장할 경로
     created_at = models.DateTimeField(auto_now_add=True)  # 피드 생성일
     updated_at = models.DateTimeField(auto_now=True)  # 피드 업데이트일
+    deleted_at = models.DateTimeField(null=True)  # 피드 삭제일시
     feed_hash = models.CharField(max_length=255)  # 피드 해시값, 필요에 따라 길이 조절 가능
     emoji_count = JSONField(blank=True, null=True, default=dict)
 
@@ -96,6 +102,7 @@ class Comment(models.Model):
     comment = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now_add=True)
+    deleted_at = models.DateTimeField(null=True)  # 댓글 삭제일시
 
 #반응(이모지, 좋아요 기능)
 class Reaction(models.Model):
