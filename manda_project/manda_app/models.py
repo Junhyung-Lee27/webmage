@@ -23,8 +23,8 @@ class UserProfile(AbstractUser):
 
 #Follow 테이블
 class Follow(models.Model):
-    follower_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='follower')
-    following_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='following', verbose_name="내가 팔로우 한 사람")
+    followed_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='follower', db_index=True)
+    following_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='following', verbose_name="내가 팔로우 한 사람", db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
 #핵심목표
@@ -97,8 +97,8 @@ class Feed(models.Model):
 
 #댓글
 class Comment(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    feed = models.ForeignKey(Feed, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, db_index=True)
+    feed = models.ForeignKey(Feed, on_delete=models.CASCADE, db_index=True)
     comment = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now_add=True)
@@ -106,8 +106,8 @@ class Comment(models.Model):
 
 #반응(이모지, 좋아요 기능)
 class Reaction(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    feed = models.ForeignKey(Feed, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, db_index=True)
+    feed = models.ForeignKey(Feed, on_delete=models.CASCADE, db_index=True)
     emoji_name = models.CharField(max_length=50)
 
 #알람(댓글, 좋아요, 팔로우)
