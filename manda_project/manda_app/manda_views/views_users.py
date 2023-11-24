@@ -154,45 +154,6 @@ def delete_user(request):
     user.delete()
     return JsonResponse({'message': 'User deleted successfully.'})
 
-@swagger_auto_schema(method='post', request_body=UserProfileSerializer)
-@api_view(['POST'])
-def write_profile(request):
-    # 아이디 변경 확인
-    new_username = request.data.get('username')
-    user = UserProfile.objects.get(pk=request.data['user'])
-
-    if new_username and new_username != user.username:
-        # username 중복 확인
-        if UserProfile.objects.filter(username=new_username).exists():
-            return Response({'error': '이미 사용되고 있는 닉네임입니다😢'}, status=status.HTTP_400_BAD_REQUEST)
-    
-    # UserProfileSerializer 검증
-    serializer = UserProfileSerializer(data=request.data)
-    if serializer.is_valid():
-        # 이미지 파일 처리
-        image_file = request.FILES.get('user_img')
-        if image_file:
-            url = S3ImgUploader(image_file).upload() 
-        else:
-            url = None
-
-        # 유저 username 변경
-        if new_username and new_username != user.username:
-            user.username = new_username
-            user.save()
-
-        user_profile = UserProfile.objects.create(
-            user=user,
-            user_image=url,
-            user_position=serializer.validated_data.get('user_position'),
-            user_info=serializer.validated_data.get('user_info'),
-            user_hash=serializer.validated_data.get('user_hash'),
-            success_count=serializer.validated_data.get('success_count')
-        )
-        response_serializer = UserProfileSerializer(user_profile)
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 @api_view(['GET'])
 def view_profile(reqeust, user_id):
     user = UserProfile.objects.get(id=user_id)
@@ -225,23 +186,21 @@ def view_profile(reqeust, user_id):
 @swagger_auto_schema(method='patch', request_body=UserProfileSerializer)
 @api_view(['PATCH'])
 def edit_profile(request):
-    user_profile = get_object_or_404(UserProfile, user=request.data.get('user'))
-    user = user_profile.user
+    user = request.user
 
     # request.data에서 'username'이 있는 경우 User 모델의 username 변경
     new_username = request.data.get('username')
     if new_username and new_username != user.username:
-        # username 중복 확인
         if UserProfile.objects.filter(username=new_username).exists():
             return Response({'error': '이미 사용되고 있는 닉네임입니다😢'}, status=status.HTTP_400_BAD_REQUEST)
         user.username = new_username
         user.save()
 
-    serializer = UserProfileSerializer(user_profile, data=request.data, partial=True)
+    serializer = UserProfileSerializer(user, data=request.data, partial=True)
     if serializer.is_valid():
-        if 'user_img' in request.data:
-            url = S3ImgUploader(request.FILES['user_img'])
-            serializer.user_img = url.upload()
+        # if 'user_img' in request.data:
+        #     url = S3ImgUploader(request.FILES['user_img'])
+        #     serializer.user_img = url.upload()
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
