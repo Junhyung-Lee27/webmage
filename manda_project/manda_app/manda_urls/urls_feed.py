@@ -4,6 +4,7 @@ from ..manda_views import views_feed
 urlpatterns = [
     # Feed related URLs
     path('<int:user_id>/', views_feed.return_feed, name='user_feed'),
+    path('recommend/', views_feed.recommend_feeds, name='recommend_feed'),
     path('<int:user_id>/log/', views_feed.return_feed_log, name='user_feed_log'),
     path('timeline/<int:user_id>/', views_feed.return_timeline, name='user_timeline'),
     path('write/', views_feed.write_feed, name='write_feed'),
