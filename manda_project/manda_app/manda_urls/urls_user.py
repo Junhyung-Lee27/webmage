@@ -4,7 +4,6 @@ from ..manda_views import views_users
 
 urlpatterns = [
     path('login/', views_users.user_login, name='login'),
-
     path('logout/', views_users.user_logout, name='logout'), 
     path('signup/', views_users.sign_up, name='signup'), 
     path('edit/', views_users.user_edit, name='edit'),
@@ -12,4 +11,7 @@ urlpatterns = [
     path('delete-user/', views_users.delete_user, name='delete_user'),
     path('profile/edit', views_users.edit_profile, name='edit_profile'),
     path('profile/<int:user_id>', views_users.view_profile, name='view_profile'),
+    path('follow/', views_users.follow_user, name='follow'),
+    path('unfollow/', views_users.unfollow_user, name='unfollow'),
+    path('follow/<int:target_user_id>', views_users.get_is_following, name="is_following")
 ]

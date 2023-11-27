@@ -39,6 +39,7 @@ def return_feed(request, user_id):
         sub_title = feed.sub_id.sub_title
         content = feed.cont_id.content
         success_count = feed.cont_id.success_count
+        is_following = Follow.objects.filter(followed_user=userprofile, following_user=request.user).exists()
 
         comments_list = [
             {'username': comment.user.username, 'comment': comment.comment, 'upload_date': comment.created_at} for comment in feed.comment_set.all()
@@ -50,6 +51,8 @@ def return_feed(request, user_id):
                 'userPosition': userprofile.user_position if userprofile else None,
                 'success': userprofile.success_count if userprofile else None,
                 'userName': userprofile.username,
+                'id' : userprofile.id,
+                'is_following': is_following,
             },
             'feedInfo': {
                 'id': feed.id,
@@ -164,6 +167,7 @@ def recommend_feeds(request):
         sub_title = feed.sub_id.sub_title
         content = feed.cont_id.content
         success_count = feed.cont_id.success_count
+        is_following = Follow.objects.filter(followed_user=userprofile, following_user=request.user).exists()
 
         comments_list = [
             {'username': comment.user.username, 'comment': comment.comment, 'upload_date': comment.created_at} for comment in feed.comment_set.all()
@@ -175,6 +179,8 @@ def recommend_feeds(request):
                 'userPosition': userprofile.user_position if userprofile else None,
                 'success': userprofile.success_count if userprofile else None,
                 'userName': userprofile.username,
+                'id' : userprofile.id,
+                'is_following': is_following,
             },
             'feedInfo': {
                 'id': feed.id,
@@ -199,15 +205,6 @@ def recommend_feeds(request):
 def return_feed_log(request, user_id):
     logs = Feed.objects.filter(user=user_id).values('created_at').annotate(feed_count=Count('id'))
     return Response(logs, status=status.HTTP_200_OK)
-
-# Get the timeline for a specific user
-@api_view(['GET'])
-def return_timeline(request, user_id):
-    # This might include the user's feed as well as feeds from their followers.
-    # Placeholder logic is provided here. Adjust based on actual requirements.
-    timeline_objects = Feed.objects.filter(Q(user_id=user_id) | Q(user__followers__id=user_id))
-    serializer = FeedSerializer(timeline_objects, many=True)
-    return Response(serializer.data, status=status.HTTP_200_OK)
 
 # Write a new feed
 @swagger_auto_schema(method='post', request_body=FeedSerializer)
