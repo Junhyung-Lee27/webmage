@@ -1,11 +1,13 @@
 from django.shortcuts import get_object_or_404
 from django.core.exceptions import ObjectDoesNotExist
+from django.core import serializers
 from django.contrib.auth import login, logout, authenticate
 from django.contrib.auth.models import User
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.hashers import check_password
 from django.http import HttpResponse, JsonResponse
+from django.utils.dateformat import DateFormat
 from rest_framework import status
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
@@ -14,7 +16,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.authtoken.models import Token
 from ..serializers.user_serializer import UserSerializer, UserAuthenticationSerializer, UserProfileSerializer
 from .utils import generate_temp_password, send_temp_password_email
-from ..models import UserProfile, Follow
+from ..models import UserProfile, Follow, BlockedUser
 from ..image_uploader import S3ImgUploader
 
 from drf_yasg.utils import swagger_auto_schema
@@ -212,15 +214,12 @@ def follow_user(request):
     follower_id = request.user.id
     following_id = request.data.get('following_id')
 
-    try:
-        existing_follow = Follow.objects.get(followed_user_id=following_id, following_user_id=follower_id)
+    follow, created = Follow.objects.get_or_create(followed_user_id=following_id, following_user_id=follower_id)
+
+    if created:
+        return Response({'message': '팔로우 성공'}, status=status.HTTP_201_CREATED)
+    else:
         return Response({'error': '이미 팔로우 관계가 존재합니다.'}, status=status.HTTP_400_BAD_REQUEST)
-    except ObjectDoesNotExist:
-        try:
-            Follow.objects.create(followed_user_id=following_id, following_user_id=follower_id)
-            return Response({'message': '팔로우 성공'}, status=status.HTTP_201_CREATED)
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['DELETE'])
 def unfollow_user(request):
@@ -236,13 +235,53 @@ def unfollow_user(request):
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
     
+@api_view(['POST'])
+def block_user(request):
+    blocker_id = request.user.id
+    blocked_id = request.data.get('blocked_id')
 
-@api_view(['GET'])
-def get_is_following(request, target_user_id):
-    user_id = request.user.id
+    block, created = BlockedUser.objects.get_or_create(blocker_id = blocker_id, blocked_id = blocked_id)
+
+    if created:
+        return Response({'message': '유저 차단 성공'}, status=status.HTTP_201_CREATED)
+    else:
+        return Response({'error' : '이미 차단 관계가 존재합니다.'}, status=status.HTTP_400_BAD_REQUEST)
+  
+@api_view(['DELETE'])
+def unblock_user(request):
+    blocker_id = request.user.id
+    blocked_id = request.data.get('blocked_id')
 
     try:
-        is_following = Follow.objects.filter(followed_user_id=target_user_id, following_user_id=user_id).exists()
-        return Response({'is_following': is_following}, status=status.HTTP_200_OK)
+        block = BlockedUser.objects.get(blocker_id = blocker_id, blocked_id = blocked_id)
+        block.delete()
+        return Response({'message': '차단 해제 성공'}, status=status.HTTP_204_NO_CONTENT)
+    except BlockedUser.DoesNotExist:
+        return Response({'error': '차단 관계가 존재하지 않습니다.'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+@api_view(['GET'])
+def blocked_users(request):
+    blocker_id = request.user.id
+
+    try:
+        blocked_users = BlockedUser.objects.filter(blocker_id=blocker_id)
+        blocked_users_data = []
+        
+        for blocked_user in blocked_users:
+            userprofile = blocked_user.blocked
+            
+            if userprofile.deleted_at is None:
+                blocked_at_formatted = DateFormat(blocked_user.blocked_at).format('Y-m-d A h:i')
+
+                blocked_user_entry = {
+                    'id': userprofile.id,
+                    'username': userprofile.username,
+                    'blocked_at': blocked_at_formatted
+                }
+                blocked_users_data.append(blocked_user_entry)
+
+        return Response(blocked_users_data, status=status.HTTP_200_OK)
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)

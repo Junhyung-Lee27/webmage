@@ -11,7 +11,11 @@ urlpatterns = [
     path('delete-user/', views_users.delete_user, name='delete_user'),
     path('profile/edit', views_users.edit_profile, name='edit_profile'),
     path('profile/<int:user_id>', views_users.view_profile, name='view_profile'),
+    
     path('follow/', views_users.follow_user, name='follow'),
     path('unfollow/', views_users.unfollow_user, name='unfollow'),
-    path('follow/<int:target_user_id>', views_users.get_is_following, name="is_following")
+
+    path('block/', views_users.block_user, name='block'),
+    path('unblock/', views_users.unblock_user, name='unblock'),
+    path('blocked_users/', views_users.blocked_users, name="blocked_users")
 ]
