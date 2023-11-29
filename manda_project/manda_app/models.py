@@ -147,3 +147,30 @@ class ChatMessage(models.Model):
         super().save(*args, **kwargs)
         self.chatroom.latest_message_time = self.created_at
         self.chatroom.save()
+
+from django.db import models
+from django.conf import settings
+from django.utils import timezone
+
+class BlockedUser(models.Model):
+    blocker = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='blocking_users')
+    blocked = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='blocked_users')
+    blocked_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('blocker', 'blocked')
+
+    def __str__(self):
+        return f"{self.blocker.username} blocks {self.blocked.username}"
+
+class ReportedFeed(models.Model):
+    reporter = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='reported_posts')
+    feed = models.ForeignKey(Feed, on_delete=models.CASCADE, related_name='reported_by_users')
+    reason = models.CharField(max_length=255, blank=True)
+    reported_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('reporter', 'feed')
+
+    def __str__(self):
+        return f"Feed {self.feed.id} reported by {self.user.username}"
