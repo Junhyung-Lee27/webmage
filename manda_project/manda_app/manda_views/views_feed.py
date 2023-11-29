@@ -265,8 +265,9 @@ def delete_feed(request, feed_id):
 def report_feed(request):
     reporter_id = request.user.id
     reported_feed = request.data.get('reported_id')
+    reason = request.data.get('reason')
 
-    report, created = ReportedFeed.objects.get_or_create(reporter_id = reporter_id, feed_id = reported_feed)
+    report, created = ReportedFeed.objects.get_or_create(reporter_id = reporter_id, feed_id = reported_feed, reason = reason)
 
     if created:
         return Response({'message': '피드 신고 성공'}, status=status.HTTP_201_CREATED)
