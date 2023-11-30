@@ -14,7 +14,7 @@ from django.db.models.functions import Extract, Exp
 from django.utils import timezone
 from django.utils.dateformat import DateFormat
 from datetime import timedelta
-from collections import defaultdict
+from collections import defaultdict, Counter
 
 # Get feed of a specific user
 @api_view(['GET'])
@@ -316,14 +316,53 @@ def reported_feeds(request):
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-# Set emoji on a feed
-@api_view(['PATCH'])
-def set_feed_emoji(request, feed_id):
-    feed = get_object_or_404(Feed, id=feed_id)
-    emoji_count = request.data.get('emoji_count', {})
-    feed.emoji_count = emoji_count  # Assuming this is a JSONField
-    feed.save()
-    return Response({'message': 'Emoji updated successfully.'}, status=status.HTTP_200_OK)
+# 특정 피드에 대한 자신 및 전체 이모지 카운트 조회 함수
+@api_view(['GET'])
+def get_emoji_count(request, feed_id):
+    reactions = Reaction.objects.filter(feed_id=feed_id).values_list('emoji_name', flat=True)
+    emoji_count = Counter(reactions)
+    
+    user_reaction = None
+    try:
+        user_reaction_query = Reaction.objects.get(user=request.user, feed_id=feed_id)
+        user_reaction = user_reaction_query.emoji_name
+    except Reaction.DoesNotExist:
+        pass
+
+    return Response({'emoji_count': dict(emoji_count), 'user_reaction': user_reaction}, status=status.HTTP_200_OK)
+
+# 이모지 입력 또는 수정
+@api_view(['POST'])
+def add_or_update_emoji(request):
+    user_id = request.user.id
+    feed_id = request.data.get('feed_id')
+    emoji_name = request.data.get('emoji_name')
+
+    reaction, created = Reaction.objects.update_or_create(
+        user_id=user_id, 
+        feed_id=feed_id,
+        defaults={'emoji_name': emoji_name}
+    )
+
+    if created:
+        return Response({'message': '이모지 입력 성공'}, status=status.HTTP_201_CREATED)
+    else:
+        return Response({'message': '이모지 수정 성공'}, status=status.HTTP_200_OK)
+
+# 이모지 취소
+@api_view(['DELETE'])
+def remove_emoji(request):
+    user_id = request.user.id
+    feed_id = request.data.get('feed_id')
+
+    try:
+        reaction = Reaction.objects.get(user_id=user_id, feed_id=feed_id)
+        reaction.delete()
+        return Response({'message': '이모지 삭제 성공'}, status=status.HTTP_204_NO_CONTENT)
+    except Reaction.DoesNotExist:
+        return Response({'error': '이모지 리액션이 존재하지 않습니다.'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 # Comment on a feed
 @api_view(['POST'])
