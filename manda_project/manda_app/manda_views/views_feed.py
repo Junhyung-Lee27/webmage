@@ -322,41 +322,30 @@ def get_emoji_count(request, feed_id):
     reactions = Reaction.objects.filter(feed_id=feed_id).values_list('emoji_name', flat=True)
     emoji_count = Counter(reactions)
     
-    user_reaction = None
-    try:
-        user_reaction_query = Reaction.objects.get(user=request.user, feed_id=feed_id)
-        user_reaction = user_reaction_query.emoji_name
-    except Reaction.DoesNotExist:
-        pass
+    user_reactions = Reaction.objects.filter(user=request.user, feed_id=feed_id).values_list('emoji_name', flat=True)
 
-    return Response({'emoji_count': dict(emoji_count), 'user_reaction': user_reaction}, status=status.HTTP_200_OK)
+    return Response({'emoji_count': dict(emoji_count), 'user_reactions': list(user_reactions)}, status=status.HTTP_200_OK)
 
-# 이모지 입력 또는 수정
+# 이모지 입력
 @api_view(['POST'])
-def add_or_update_emoji(request):
+def add_emoji(request):
     user_id = request.user.id
     feed_id = request.data.get('feed_id')
     emoji_name = request.data.get('emoji_name')
 
-    reaction, created = Reaction.objects.update_or_create(
-        user_id=user_id, 
-        feed_id=feed_id,
-        defaults={'emoji_name': emoji_name}
-    )
+    Reaction.objects.create(user_id=user_id, feed_id=feed_id, emoji_name=emoji_name)
 
-    if created:
-        return Response({'message': '이모지 입력 성공'}, status=status.HTTP_201_CREATED)
-    else:
-        return Response({'message': '이모지 수정 성공'}, status=status.HTTP_200_OK)
+    return Response({'message': '이모지 입력 성공'}, status=status.HTTP_201_CREATED)
 
 # 이모지 취소
 @api_view(['DELETE'])
 def remove_emoji(request):
     user_id = request.user.id
     feed_id = request.data.get('feed_id')
+    emoji_name = request.data.get('emoji_name')
 
     try:
-        reaction = Reaction.objects.get(user_id=user_id, feed_id=feed_id)
+        reaction = Reaction.objects.get(user_id=user_id, feed_id=feed_id, emoji_name=emoji_name)
         reaction.delete()
         return Response({'message': '이모지 삭제 성공'}, status=status.HTTP_204_NO_CONTENT)
     except Reaction.DoesNotExist:

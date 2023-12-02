@@ -20,6 +20,6 @@ urlpatterns = [
 
     # 이모지
     path('emoji/<int:feed_id>/', views_feed.get_emoji_count, name="get_emoji_count"),
-    path('emoji/add_or_update/', views_feed.add_or_update_emoji, name="add_or_update_emoji"),
+    path('emoji/add/', views_feed.add_emoji, name="add_emoji"),
     path('emoji/remove/', views_feed.remove_emoji, name="remove_emoji"),
 ]
