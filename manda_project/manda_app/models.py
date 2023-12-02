@@ -101,7 +101,7 @@ class Comment(models.Model):
     feed = models.ForeignKey(Feed, on_delete=models.CASCADE, db_index=True)
     comment = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     deleted_at = models.DateTimeField(null=True)  # 댓글 삭제일시
 
 #반응(이모지, 좋아요 기능)

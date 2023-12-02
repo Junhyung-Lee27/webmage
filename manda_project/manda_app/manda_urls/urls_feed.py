@@ -10,8 +10,11 @@ urlpatterns = [
     path('edit/<int:feed_id>/', views_feed.edit_feed, name='edit_feed'),
     path('delete/<int:feed_id>/', views_feed.delete_feed, name='delete_feed'),
     
-    path('<int:feed_id>/comment/', views_feed.comment_on_feed, name='add_comment'),
-    path('<int:feed_id>/comment/<int:comment_id>/', views_feed.edit_comment, name='edit_comment'),
+    # 댓글
+    path('<int:feed_id>/comment/', views_feed.get_comments, name="get_comments"),
+    path('<int:feed_id>/comment/add/', views_feed.add_comment, name='add_comment'),
+    path('<int:feed_id>/comment/<int:comment_id>/edit/', views_feed.edit_comment, name='edit_comment'),
+    path('<int:feed_id>/comment/<int:comment_id>/remove/', views_feed.delete_comment, name='remove_comment'),
 
     # 피드 신고
     path('report/', views_feed.report_feed, name='report_feed'),

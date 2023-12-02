@@ -353,17 +353,24 @@ def remove_emoji(request):
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-# Comment on a feed
+# 댓글 조회
+@api_view(['GET'])
+def get_comments(request, feed_id):
+    comments = Comment.objects.filter(feed_id=feed_id, deleted_at__isnull=True)
+    serializer = CommentSerializer(comments, many=True)
+    return Response(serializer.data, status=status.HTTP_200_OK)
+
+# 댓글 생성
 @api_view(['POST'])
-def comment_on_feed(request, feed_id):
+def add_comment(request, feed_id):
     feed = get_object_or_404(Feed, id=feed_id)
     serializer = CommentSerializer(data=request.data)
     if serializer.is_valid():
-        serializer.save(feed=feed)
+        serializer.save(feed=feed, user=request.user)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# Edit a comment
+# 댓글 수정
 @api_view(['PATCH'])
 def edit_comment(request, feed_id, comment_id):
     comment = get_object_or_404(Comment, id=comment_id, feed_id=feed_id)
@@ -373,3 +380,10 @@ def edit_comment(request, feed_id, comment_id):
         return Response(serializer.data, status=status.HTTP_200_OK)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+# 댓글 삭제
+@api_view(['DELETE'])
+def delete_comment(request, feed_id, comment_id):
+    comment = get_object_or_404(Comment, id=comment_id, feed_id=feed_id)
+    comment.deleted_at = timezone.now()
+    comment.save()
+    return Response({'message': '댓글 삭제 성공'}, status=status.HTTP_204_NO_CONTENT)
