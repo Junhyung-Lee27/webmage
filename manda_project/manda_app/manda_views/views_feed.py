@@ -4,7 +4,7 @@ from django.core.paginator import Paginator, EmptyPage
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from ..models import UserProfile, Follow, Feed, Comment, Reaction, ReportedFeed, BlockedUser
+from ..models import UserProfile, Follow, Feed, Comment, Reaction, ReportedFeed, BlockedUser, ReportedComment
 from ..serializers.comment_serializer import CommentSerializer  # You will need to create these serializers
 from ..serializers.feed_serializer import FeedSerializer
 from drf_yasg.utils import swagger_auto_schema
@@ -32,6 +32,10 @@ def return_feed(request, user_id):
     except EmptyPage:
         return Response({'message': 'No more pages', 'data': []}, status=status.HTTP_200_OK)
 
+    # 유저가 신고한 댓글 / 차단한 유저 ID
+    reported_comment_ids = ReportedComment.objects.filter(reporter=request.user).values_list('comment', flat=True)
+    blocked_user_ids = BlockedUser.objects.filter(blocker=user_id).values_list('blocked', flat=True)
+
     # 데이터 구조화
     feed_entries = []
     for feed in feeds_page:
@@ -43,7 +47,15 @@ def return_feed(request, user_id):
         is_following = Follow.objects.filter(followed_user=userprofile, following_user=request.user).exists()
 
         comments_list = [
-            {'username': comment.user.username, 'comment': comment.comment, 'upload_date': comment.created_at} for comment in feed.comment_set.all()
+            {
+                'username': comment.user.username, 
+                'comment': comment.comment, 
+                'upload_date': comment.created_at
+            } 
+            for comment in feed.comment_set.all() 
+            if comment.deleted_at is None
+            and comment.id not in reported_comment_ids
+            and comment.user.id not in blocked_user_ids
         ]
 
         feed_entry = {
@@ -181,6 +193,9 @@ def recommend_feeds(request):
     except EmptyPage:
         return Response({'message': 'No more pages', 'data': []}, status=status.HTTP_200_OK)
 
+    # 유저가 신고한 댓글 ID 목록
+    reported_comment_ids = ReportedComment.objects.filter(reporter=request.user).values_list('comment', flat=True)
+
     # 데이터 구조화
     feed_entries = []
     for feed, weight in feeds_page:
@@ -192,7 +207,15 @@ def recommend_feeds(request):
         is_following = Follow.objects.filter(followed_user=userprofile, following_user=request.user).exists()
 
         comments_list = [
-            {'username': comment.user.username, 'comment': comment.comment, 'upload_date': comment.created_at} for comment in feed.comment_set.all()
+            {
+                'username': comment.user.username, 
+                'comment': comment.comment, 
+                'upload_date': comment.created_at
+            } 
+            for comment in feed.comment_set.all() 
+            if comment.deleted_at is None
+            and comment.id not in reported_comment_ids
+            and comment.user.id not in blocked_user_ids
         ]
 
         feed_entry = {
@@ -282,9 +305,9 @@ def unreport_feed(request):
     try:
         report = ReportedFeed.objects.get(reporter_id = reporter_id, feed_id = reported_feed)
         report.delete()
-        return Response({'message': '차단 해제 성공'}, status=status.HTTP_204_NO_CONTENT)
+        return Response({'message': '신고 취소 성공'}, status=status.HTTP_204_NO_CONTENT)
     except ReportedFeed.DoesNotExist:
-        return Response({'error': '차단 관계가 존재하지 않습니다.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'error': '신고 관계가 존재하지 않습니다.'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
     
@@ -356,9 +379,23 @@ def remove_emoji(request):
 # 댓글 조회
 @api_view(['GET'])
 def get_comments(request, feed_id):
-    comments = Comment.objects.filter(feed_id=feed_id, deleted_at__isnull=True)
-    serializer = CommentSerializer(comments, many=True)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    user = request.user
+    reported_comment_ids = ReportedComment.objects.filter(reporter=user).values_list('comment', flat=True)
+    blocked_user_ids = BlockedUser.objects.filter(blocker=user).values_list('blocked', flat=True)
+    
+    comments = Comment.objects.filter(feed_id=feed_id, deleted_at__isnull=True)\
+      .exclude(id__in=reported_comment_ids).exclude(user__in=blocked_user_ids).order_by('-created_at')
+    page = request.query_params.get('page', 1)
+    page_size = 5
+
+    paginator = Paginator(comments, page_size)
+    try:
+        comments_page = paginator.page(page)
+    except EmptyPage:
+        return Response({'message': 'No more pages', 'data': []}, status=status.HTTP_200_OK)
+
+    serializer = CommentSerializer(comments_page, many=True)
+    return Response({'comment_info': serializer.data, 'count': paginator.count}, status=status.HTTP_200_OK)
 
 # 댓글 생성
 @api_view(['POST'])
@@ -387,3 +424,58 @@ def delete_comment(request, feed_id, comment_id):
     comment.deleted_at = timezone.now()
     comment.save()
     return Response({'message': '댓글 삭제 성공'}, status=status.HTTP_204_NO_CONTENT)
+
+# 댓글 신고
+@api_view(['POST'])
+def report_comment(request, comment_id):
+    reporter_id = request.user.id
+    reason = request.data.get('reason')
+
+    comment, created = ReportedComment.objects.get_or_create(reporter_id=reporter_id, comment_id=comment_id, reason=reason)
+
+    if created:
+        return Response({'message': '댓글 신고 성공'}, status=status.HTTP_201_CREATED)
+    else:
+        return Response({'error' : '이미 신고 관계가 존재합니다.'}, status=status.HTTP_400_BAD_REQUEST)
+    
+# 댓글 신고 취소
+@api_view(['DELETE'])
+def unreport_comment(request, comment_id):
+    reporter_id = request.user.id
+    
+    try:
+        report = ReportedComment.objects.get(reporter_id=reporter_id, comment_id=comment_id)
+        report.delete()
+        return Response({'message' : '신고 취소 성공'}, status=status.HTTP_204_NO_CONTENT)
+    except ReportedComment.DoesNotExist:
+        return Response({'error': '신고 관계가 존재하지 않습니다.'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['GET'])
+def reported_comments(request):
+    reporter_id = request.user.id
+
+    try:
+        reported_comments = ReportedComment.objects.filter(reporter_id=reporter_id, comment__deleted_at__isnull=True)
+        reported_comments_data = []
+        
+        for reported_comment in reported_comments:
+            comment = reported_comment.comment
+            userprofile = comment.user
+
+            if userprofile.deleted_at is None:
+              reported_at_formatted = DateFormat(reported_comment.reported_at).format('Y-m-d A h:i')
+
+              reported_comment_entry = {
+                  'id': comment.id,
+                  'username': userprofile.username,
+                  'comment': comment.comment,
+                  'reason': reported_comment.reason,
+                  'reported_at': reported_at_formatted
+              }
+              reported_comments_data.append(reported_comment_entry)
+
+        return Response(reported_comments_data, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)

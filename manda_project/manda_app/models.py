@@ -174,3 +174,15 @@ class ReportedFeed(models.Model):
 
     def __str__(self):
         return f"Feed {self.feed.id} reported by {self.user.username}"
+    
+class ReportedComment(models.Model):
+    reporter = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='reported_comments')
+    comment = models.ForeignKey(Comment, on_delete=models.CASCADE, related_name='reported_by_users')
+    reason = models.CharField(max_length=255, blank=True)
+    reported_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('reporter', 'comment')
+
+    def __str__(self):
+        return f"Feed {self.comment.id} reported by {self.user.username}"
