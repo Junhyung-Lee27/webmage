@@ -8,6 +8,8 @@ from django.contrib.auth.hashers import make_password
 from django.contrib.auth.hashers import check_password
 from django.http import HttpResponse, JsonResponse
 from django.utils.dateformat import DateFormat
+from django.utils import timezone
+from django.db.models import Sum
 from rest_framework import status
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
@@ -16,8 +18,9 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.authtoken.models import Token
 from ..serializers.user_serializer import UserSerializer, UserAuthenticationSerializer, UserProfileSerializer
 from .utils import generate_temp_password, send_temp_password_email
-from ..models import UserProfile, Follow, BlockedUser
+from ..models import UserProfile, Follow, BlockedUser, MandaContent, MandaSub
 from ..image_uploader import S3ImgUploader
+import re
 
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -32,6 +35,8 @@ def user_login(request):
         password = data['password']
         user = authenticate(request, username=username, password=password)
         if user is not None:
+            if user.deleted_at:
+                return Response({'error': 'Account is deactivated'}, status=status.HTTP_400_BAD_REQUEST)
             login(request, user)
             token, created = Token.objects.get_or_create(user=user)
             return Response({'token': token.key, 'user_id': user.id}, status=status.HTTP_200_OK)
@@ -71,8 +76,10 @@ def sign_up(request):
         
         # 신규 회원가입
         password = make_password(serializer.validated_data['password'])
+        username_count = UserProfile.objects.filter(username__startswith=serializer.validated_data['username']).count()
+        if not "EMAIL" in provider:
+            serializer.validated_data['username'] = serializer.validated_data['username'] + str(username_count + 1)    
         serializer.validated_data['password'] = password
-        serializer.validated_data['provider'] = provider
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
         
@@ -99,8 +106,6 @@ def sign_up(request):
         # 다른 실패 케이스
         else:
             return Response(errors, status=status.HTTP_400_BAD_REQUEST)
-
-    
 
 @swagger_auto_schema(method='patch', request_body=UserSerializer)
 @api_view(['PATCH'])
@@ -146,39 +151,57 @@ def reset_password(request):
 @permission_classes([IsAuthenticated])
 def delete_user(request):
     user = request.user
+    
+    # 이후 재사용할 수 있도록 username, provider 값 변경
+    current_time = timezone.now().strftime("%Y%m%d%H%M%S")
+    user.username = f"{user.username}_del_{current_time}"
+    user.provider = f"{user.provider}_del_{current_time}"
 
-    # request에서 비밀번호를 가져옴
+    # 소셜 회원 탈퇴
+    if 'EMAIL' not in user.provider:
+        user.deleted_at = timezone.now()
+        user.save()
+        return JsonResponse({'message': 'User soft deleted successfully.'})
+    
+    # 이메일 회원 탈퇴
     password = request.data.get('password')
-
-    # 비밀번호 확인
     if not password or not check_password(password, user.password):
         return Response({"error": "비밀번호가 일치하지 않습니다."}, status=status.HTTP_400_BAD_REQUEST)
 
-    user.delete()
-    return JsonResponse({'message': 'User deleted successfully.'})
+    user.deleted_at = timezone.now()
+    user.save()
+    return JsonResponse({'message': 'User soft deleted successfully.'})
 
 @api_view(['GET'])
 def view_profile(reqeust, user_id):
     user = UserProfile.objects.get(id=user_id)
 
-    # 기본 response_data 설정
+    follower_count = Follow.objects.filter(followed_user=user).count()
+    
+    success_count_total = MandaContent.objects.filter(
+        sub_id__in=MandaSub.objects.filter(main_id__user=user)
+    ).aggregate(Sum('success_count'))['success_count__sum'] or 0
+
+    provider_str = re.sub(r'\d+|[a-z]|-', '', user.provider)
+    
     response_data = {
-        'user_id': user_id,
+        'userId': user_id,
         'username': user.username,
-        'user_email': user.email
+        'followerCount': follower_count,
+        'successCount': success_count_total,
+        'userPosition': user.user_position,
+        'userInfo': user.user_info,
+        'userHash': user.user_hash,
+        'userEmail': user.email,
+        'userProvider': provider_str  
     }
 
+    # User Image가 있을 때의 추가 정보
     try:
         object_key = user.user_image
         url = f'https://d3u19o4soz3vn3.cloudfront.net/img/{object_key}'
-
-        # UserProfile이 있을 때의 추가 정보
         response_data.update({
-            'user_image': url,
-            'user_position': user.user_position,
-            'user_info': user.user_info,
-            'user_hash': user.user_hash,
-            'success_count': user.success_count
+            'userImg': url,
         })
 
     except UserProfile.DoesNotExist:
