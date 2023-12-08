@@ -20,7 +20,7 @@ from collections import defaultdict, Counter
 @api_view(['GET'])
 def return_feed(request, user_id):
     user_id = request.GET.get('query')
-    feeds = Feed.objects.filter(user=user_id, deleted_at__isnull=True).order_by('-id')
+    feeds = Feed.objects.filter(user=user_id, user__deleted_at__isnull=True, deleted_at__isnull=True).order_by('-id')
 
     # 페이지네이션
     default_page = 1
@@ -97,36 +97,36 @@ def recommend_feeds(request):
     # 추천 로직
     # 1 내가 팔로우하는 유저, 나를 팔로우하는 유저
     following_user_ids = Follow.objects.filter(following_user=user).values_list('followed_user', flat=True)
-    following_feeds_exclude_deleted = Feed.objects.filter(user__in=following_user_ids, deleted_at__isnull=True)
+    following_feeds_exclude_deleted = Feed.objects.filter(user__in=following_user_ids, user__deleted_at__isnull=True, deleted_at__isnull=True)
     following_feeds_exclude_blocked = following_feeds_exclude_deleted.exclude(user__in=blocked_user_ids).exclude(id__in=reported_feed_ids)
     following_feeds = following_feeds_exclude_blocked.select_related('user').prefetch_related('comment_set').order_by('-id')[:10]
     
     followed_user_ids = Follow.objects.filter(followed_user=user).values_list('following_user', flat=True)
-    followed_feeds_exclude_deleted = Feed.objects.filter(user__in=followed_user_ids, deleted_at__isnull=True)
+    followed_feeds_exclude_deleted = Feed.objects.filter(user__in=followed_user_ids, user__deleted_at__isnull=True, deleted_at__isnull=True)
     followed_feeds_exclude_blocked = followed_feeds_exclude_deleted.exclude(user__in=blocked_user_ids).exclude(id__in=reported_feed_ids)
     followed_feeds = followed_feeds_exclude_blocked.select_related('user').prefetch_related('comment_set').order_by('-id')[:10]
     
     # 2 내가 댓글을 남긴 게시물의 유저, 내 피드 게시물에 댓글 남긴 유저
     commented_feed_ids = Comment.objects.filter(user=user).values_list('feed', flat=True)
     commented_user_ids = Feed.objects.filter(id__in=commented_feed_ids).values_list('user', flat=True)
-    commented_user_feeds_exclude_deleted = Feed.objects.filter(user__in=commented_user_ids, deleted_at__isnull=True)
+    commented_user_feeds_exclude_deleted = Feed.objects.filter(user__in=commented_user_ids, user__deleted_at__isnull=True, deleted_at__isnull=True)
     commented_user_feeds_exclude_blocked = commented_user_feeds_exclude_deleted.exclude(user__in=blocked_user_ids).exclude(id__in=reported_feed_ids)
     commented_user_feeds = commented_user_feeds_exclude_blocked.select_related('user').prefetch_related('comment_set').exclude(user=user).order_by('-id')[:10]
     
     commenter_user_ids = Comment.objects.filter(feed__user=user).values_list('user', flat=True)
-    commenter_feeds_exclude_deleted = Feed.objects.filter(user__in=commenter_user_ids, deleted_at__isnull=True)
+    commenter_feeds_exclude_deleted = Feed.objects.filter(user__in=commenter_user_ids, user__deleted_at__isnull=True, deleted_at__isnull=True)
     commenter_feeds_exclude_blocked = commenter_feeds_exclude_deleted.exclude(user__in=blocked_user_ids).exclude(id__in=reported_feed_ids)
     commenter_feeds = commenter_feeds_exclude_blocked.select_related('user').prefetch_related('comment_set').exclude(user=user).order_by('-id')[:10]
     
     # 3 내가 이모지 반응을 보이거나, 내 피드 게시물에 이모지를 남긴 유저
     reacted_feed_ids = Reaction.objects.filter(user=user).values_list('feed', flat=True)
     reacted_user_ids = Feed.objects.filter(id__in=reacted_feed_ids).values_list('user', flat=True)
-    reacted_user_feeds_exclude_deleted = Feed.objects.filter(user__in=reacted_user_ids, deleted_at__isnull=True)
+    reacted_user_feeds_exclude_deleted = Feed.objects.filter(user__in=reacted_user_ids, user__deleted_at__isnull=True, deleted_at__isnull=True)
     reacted_user_feeds_exclude_blocked = reacted_user_feeds_exclude_deleted.exclude(user__in=blocked_user_ids).exclude(id__in=reported_feed_ids)
     reacted_user_feeds = reacted_user_feeds_exclude_blocked.select_related('user').prefetch_related('comment_set').exclude(user=user).order_by('-id')[:10]
 
     reactor_user_ids = Reaction.objects.filter(feed__user=user).values_list('user', flat=True)
-    reactor_feeds_exclude_deleted = Feed.objects.filter(user__in=reactor_user_ids, deleted_at__isnull=True)
+    reactor_feeds_exclude_deleted = Feed.objects.filter(user__in=reactor_user_ids, user__deleted_at__isnull=True, deleted_at__isnull=True)
     reactor_feeds_exclude_blocked = reactor_feeds_exclude_deleted.exclude(user__in=blocked_user_ids).exclude(id__in=reported_feed_ids)
     reactor_feeds = reactor_feeds_exclude_blocked.select_related('user').prefetch_related('comment_set').exclude(user=user).order_by('-id')[:10]
 
@@ -139,7 +139,7 @@ def recommend_feeds(request):
     recent_time_limit = timezone.now() - timedelta(days=30)
 
     # 시간 가중치(분 단위) 계산 및 쿼리
-    popular_feeds_exclude_deleted = Feed.objects.filter(created_at__gte=recent_time_limit, deleted_at__isnull=True)
+    popular_feeds_exclude_deleted = Feed.objects.filter(created_at__gte=recent_time_limit, user__deleted_at__isnull=True, deleted_at__isnull=True)
     popular_feeds_exclude_blocked = popular_feeds_exclude_deleted.exclude(user__in=blocked_user_ids).exclude(id__in=reported_feed_ids)
     popular_feeds = popular_feeds_exclude_blocked\
         .annotate(num_comments=Count('comment'), num_reactions=Count('reaction'))\
