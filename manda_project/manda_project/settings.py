@@ -180,6 +180,9 @@ CHANNEL_LAYERS = {
         "CONFIG": {
             "hosts": [("127.0.0.1", 6379)],
         },
+        "MIDDLEWARE": [
+            "manda_project.mymiddleware.TokenAuthMiddleware",  # Custom middleware
+        ],
     },
 }
 
@@ -237,3 +240,21 @@ CSRF_TRUSTED_ORIGINS = [
 # 외부 사이트에서의 요청에 대한 쿠키 전송 설정
 CSRF_COOKIE_SAMESITE = 'Lax'  # Strict, Lax
 SESSION_COOKIE_SAMESITE = 'Lax' # Strict, Lax
+
+# 로깅 설정
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'TokenAuthMiddleware': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    },
+}

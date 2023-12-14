@@ -245,6 +245,54 @@ def recommend_feeds(request):
 
     return Response(feed_entries)
 
+@api_view(['GET'])
+def selected_feed(request, feed_id):
+    try:
+        feed = Feed.objects.get(id=feed_id, deleted_at__isnull=True)
+        userprofile = feed.user
+        main_title = feed.main_id.main_title
+        sub_title = feed.sub_id.sub_title
+        content = feed.cont_id.content
+        success_count = feed.cont_id.success_count
+        is_following = Follow.objects.filter(followed_user=userprofile, following_user=request.user).exists()
+
+        comments_list = [
+            {
+                'username': comment.user.username, 
+                'comment': comment.comment, 
+                'upload_date': comment.created_at
+            } 
+            for comment in feed.comment_set.all() 
+            if comment.deleted_at is None
+        ]
+
+        feed_data = {
+            'userInfo': {
+                'profile_img': userprofile.user_image if userprofile else None,
+                'userPosition': userprofile.user_position if userprofile else None,
+                'success': userprofile.success_count if userprofile else None,
+                'userName': userprofile.username,
+                'id' : userprofile.id,
+                'is_following': is_following,
+            },
+            'feedInfo': {
+                'id': feed.id,
+                'main_title': main_title,
+                'sub_title': sub_title,
+                'content': content,
+                'success_count': success_count,
+                'post': feed.feed_contents,
+                'content_img': str(feed.feed_image),
+                'created_at': feed.created_at,
+                'tags': feed.feed_hash,
+                'emoji_count': feed.emoji_count,
+                'comment_info': comments_list
+            }
+        }
+        return Response(feed_data, status=status.HTTP_200_OK)
+    except Feed.DoesNotExist:
+        return Response({'message': 'Feed not found'}, status=status.HTTP_404_NOT_FOUND)
+
 # Get feed logs for a specific user
 @api_view(['GET'])
 def return_feed_log(request, user_id):

@@ -174,14 +174,14 @@ def delete_user(request):
 
 @api_view(['GET'])
 def view_profile(reqeust, user_id):
+    current_user = reqeust.user
     user = UserProfile.objects.get(id=user_id)
 
     follower_count = Follow.objects.filter(followed_user=user).count()
-    
+    is_following = Follow.objects.filter(followed_user=user, following_user=current_user).exists()
     success_count_total = MandaContent.objects.filter(
         sub_id__in=MandaSub.objects.filter(main_id__user=user)
     ).aggregate(Sum('success_count'))['success_count__sum'] or 0
-
     provider_str = re.sub(r'\d+|[a-z]|-', '', user.provider)
     
     response_data = {
@@ -193,7 +193,8 @@ def view_profile(reqeust, user_id):
         'userInfo': user.user_info,
         'userHash': user.user_hash,
         'userEmail': user.email,
-        'userProvider': provider_str  
+        'userProvider': provider_str,
+        'is_following': is_following
     }
 
     # User Image가 있을 때의 추가 정보

@@ -5,6 +5,7 @@ urlpatterns = [
     # Feed related URLs
     path('<int:user_id>/', views_feed.return_feed, name='user_feed'),
     path('recommend/', views_feed.recommend_feeds, name='recommend_feed'),
+    path('selected_feed/<int:feed_id>', views_feed.selected_feed, name='selected_feed'),
     path('<int:user_id>/log/', views_feed.return_feed_log, name='user_feed_log'),
     path('write/', views_feed.write_feed, name='write_feed'),
     path('edit/<int:feed_id>/', views_feed.edit_feed, name='edit_feed'),

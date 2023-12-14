@@ -1,8 +1,6 @@
 from django.conf import settings
 from django.db import models
-from django.contrib.auth.models import User  # User 모델을 가져오기
 from django.contrib.auth.models import AbstractUser
-from django.http import JsonResponse #
 from django.db.models import JSONField
 
 # Create your models here.
@@ -111,15 +109,22 @@ class Reaction(models.Model):
     emoji_name = models.CharField(max_length=50)
 
 #알람(댓글, 좋아요, 팔로우)
-class Alarm(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='user_alarms', verbose_name="알람을 보낸 유저")
-    target_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='target_user_alarms', verbose_name="알람을 받을 유저")
-    follow = models.ForeignKey(Follow, on_delete=models.CASCADE, null=True)
-    comment = models.ForeignKey(Comment, on_delete=models.CASCADE, null=True)
-    reaction = models.ForeignKey(Reaction, on_delete=models.CASCADE, null=True)
-    alarm_date = models.DateTimeField(auto_now_add=True)
-    is_read = models.BooleanField(default=False)
+class Notification(models.Model):
+    NOTIFICATION_TYPES = (
+        ('follow', 'Follow'),
+        ('comment', 'Comment'),
+        ('reaction', 'Reaction'),
+    )
 
+    sender = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sent_notifications')
+    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='received_notifications')
+    notification_type = models.CharField(max_length=10, choices=NOTIFICATION_TYPES)
+    feed = models.ForeignKey(Feed, on_delete=models.CASCADE, null=True)
+    comment = models.TextField(null=True)
+    total_count = models.IntegerField(null=True, default=None)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_read = models.BooleanField(default=False)
+    
 class ChatRoom(models.Model):
     room_number = models.AutoField(primary_key=True)
     starter = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='started_chats')

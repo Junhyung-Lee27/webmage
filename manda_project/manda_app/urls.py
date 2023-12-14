@@ -11,6 +11,7 @@ from .manda_urls.urls_manda import urlpatterns as manda_manda_urls
 from .manda_urls.urls_feed import urlpatterns as manda_feed_urls
 from .manda_urls.urls_chat import urlpatterns as manda_chat_urls
 from .manda_urls.urls_search import urlpatterns as manda_search_urls
+from .manda_urls.urls_noti import urlpatterns as manda_noti_urls
 
 urlpatterns = [
     path('v1/test/', TestView.as_view(), name='test'),
@@ -21,5 +22,6 @@ urlpatterns = [
 	  path('feed/', include(manda_feed_urls)), #피드
     path('chat/', include(manda_chat_urls)), #채팅
     path('search/', include(manda_search_urls)), #검색(탐색)
+    path('noti/', include(manda_noti_urls)), # 알림
     path('get_token/', views.get_csrf_token, name='get_token'), #토큰
 ]
