@@ -6,6 +6,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.hashers import check_password
+from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.utils.dateformat import DateFormat
 from django.utils import timezone
@@ -31,17 +32,28 @@ from drf_yasg import openapi
 def user_login(request):
     data = request.data
     try:
-        username = data['username']
-        password = data['password']
-        user = authenticate(request, username=username, password=password)
-        if user is not None:
-            if user.deleted_at:
-                return Response({'error': 'Account is deactivated'}, status=status.HTTP_400_BAD_REQUEST)
-            login(request, user)
-            token, created = Token.objects.get_or_create(user=user)
-            return Response({'token': token.key, 'user_id': user.id}, status=status.HTTP_200_OK)
+        username = data.get('username')
+        password = data.get('password')
+
+        # 유저 존재 여부 확인 (이메일 로그인 지원)
+        if '@' in username:
+            user = UserProfile.objects.filter(email=username).first()
         else:
-            return Response({'error': 'Invalid credentials'}, status=status.HTTP_400_BAD_REQUEST)
+            user = UserProfile.objects.filter(username=username).first()
+
+        # 유저 존재 여부 및 is_active 확인
+        if not user or not user.is_active:
+            return Response({'error': '존재하지 않는 회원입니다'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 비밀번호 확인
+        if not check_password(password, user.password):
+            return Response({'error': 'username과 password를 다시 확인해주세요'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 로그인 및 토큰 발급
+        login(request, user)
+        token, created = Token.objects.get_or_create(user=user)
+        return Response({'token': token.key, 'user_id': user.id}, status=status.HTTP_200_OK)
+
     except KeyError:
         return Response({'error': 'Missing username or password'}, status=status.HTTP_400_BAD_REQUEST)
     
@@ -51,61 +63,60 @@ def user_logout(requet):
     logout(requet)
     return HttpResponse(status=200)
 
+def custom_password_validator(password):
+    # 최소 8자 이상
+    if len(password) < 8:
+        return False, "비밀번호는 최소 8자 이상이어야 합니다."
+
+    # 문자, 숫자, 기호 중 2종류 이상 조합
+    if not re.match(r'((?=.*[A-Za-z])(?=.*\d)|(?=.*[A-Za-z])(?=.*[!@#$%^&*])|(?=.*\d)(?=.*[!@#$%^&*]))', password):
+        return False, "비밀번호는 문자, 숫자, 기호 중 2개 이상을 조합하여야 합니다."
+
+    return True, ""
+
 @swagger_auto_schema(method='post', request_body=UserSerializer)
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def sign_up(request):
     serializer = UserSerializer(data=request.data)
 
-    # 가입 요청 데이터의 유효성 검증 성공
     if serializer.is_valid():
+        username = serializer.validated_data.get('username')
+        email = serializer.validated_data.get('email')
+        password = serializer.validated_data.get('password')
         provider = serializer.validated_data.get('provider')
+
+        # KAKAO 로그인 예외 처리
+        if provider == "KAKAO":
+            existing_user = UserProfile.objects.filter(email=email, is_active=True).exists()
+            if existing_user:
+                return Response({'username': username}, status=status.HTTP_200_OK)
         
-        # 이메일 사용자일 경우 provider에 숫자 1 더함 (<- EMAIL 사용자 간에 구분하기 위함)
-        if provider == "EMAIL":
-          provider_count = UserProfile.objects.filter(provider__startswith=provider).count()
-          provider = f"{provider}{provider_count + 1}"
+        # 유저명 유효성 검사
+        if not 6 <= len(username) <= 12 or not re.match("^[A-Za-z0-9가-힣-_]+$", username):
+            return Response({"error": "유효하지 않은 사용자 이름입니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 유저명, 이메일 중복 검사
+        if UserProfile.objects.filter(username=username).exists():
+            return Response({"error": "이미 사용 중인 사용자 이름입니다."}, status=status.HTTP_400_BAD_REQUEST)
+        if UserProfile.objects.filter(email=email).exists():
+            return Response({"error": "이미 사용 중인 이메일입니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 비밀번호 유효성 검사
+        is_valid, message = custom_password_validator(password)
+        if not is_valid:
+          return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 비밀번호 암호화
+        encrypted_password = make_password(password)
         
-        # username을 변경한 사용자의 경우 변경된 username으로 로그인하도록 함
-        if UserProfile.objects.filter(provider=provider).exists():
-            user = UserProfile.objects.get(provider=provider)
-            username = user.username
-            
-            if serializer.validated_data.get('username') != username:
-                return JsonResponse({'username': username}, status=status.HTTP_200_OK)
-        
-        # 신규 회원가입
-        password = make_password(serializer.validated_data['password'])
-        username_count = UserProfile.objects.filter(username__startswith=serializer.validated_data['username']).count()
-        if not "EMAIL" in provider:
-            serializer.validated_data['username'] = serializer.validated_data['username'] + str(username_count + 1)    
-        serializer.validated_data['password'] = password
-        serializer.save()
+        # 사용자 저장
+        user = serializer.save(password=encrypted_password)
+        user.save()
+
         return Response(serializer.data, status=status.HTTP_201_CREATED)
-        
-    # 가입 요청 데이터의 유효성 검증 실패
     else:
-        provider = serializer.data.get('provider')
-        errors = serializer.errors
-
-        # username 중복 케이스
-        if 'username' in errors and 'username already exists' in errors['username'][0].lower():
-            
-            # 이미 소셜 회원가입한 사용자의 경우 -> 기존 사용자 로그인
-            if 'EMAIL' not in provider:
-                username = serializer.data['username']
-                password = serializer.data['password']
-                
-                if UserProfile.objects.filter(username=username).exists():    
-                    return Response({'message': 'User already registered. Please log in.'}, status=status.HTTP_200_OK)
-
-            # EMAIL 회원가입의 경우 -> 다른 이름 사용 권고
-            if 'EMAIL' in provider:
-                return Response({"error": "이미 사용 중인 사용자 이름입니다."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # 다른 실패 케이스
-        else:
-            return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @swagger_auto_schema(method='patch', request_body=UserSerializer)
 @api_view(['PATCH'])
@@ -151,26 +162,39 @@ def reset_password(request):
 @permission_classes([IsAuthenticated])
 def delete_user(request):
     user = request.user
-    
-    # 이후 재사용할 수 있도록 username, provider 값 변경
-    current_time = timezone.now().strftime("%Y%m%d%H%M%S")
-    user.username = f"{user.username}_del_{current_time}"
-    user.provider = f"{user.provider}_del_{current_time}"
+    data = request.data
+    provider = user.provider
 
-    # 소셜 회원 탈퇴
-    if 'EMAIL' not in user.provider:
-        user.deleted_at = timezone.now()
+    # 현재 시간 기록
+    current_time = timezone.now()
+
+    # 소셜 로그인 회원 탈퇴 처리
+    if 'KAKAO' in provider:
+        user.username = f"{user.username}_del_{current_time.strftime('%Y%m%d%H%M%S')}"
+        user.email = f"{user.email}_del_{current_time.strftime('%Y%m%d%H%M%S')}"
+        
+        user.is_active = False
+        user.deleted_at = current_time
         user.save()
-        return JsonResponse({'message': 'User soft deleted successfully.'})
-    
-    # 이메일 회원 탈퇴
-    password = request.data.get('password')
-    if not password or not check_password(password, user.password):
-        return Response({"error": "비밀번호가 일치하지 않습니다."}, status=status.HTTP_400_BAD_REQUEST)
+        return JsonResponse({'message': 'User successfully deactivated.'})
 
-    user.deleted_at = timezone.now()
-    user.save()
-    return JsonResponse({'message': 'User soft deleted successfully.'})
+    # 이메일 회원 탈퇴 처리
+    else:
+        password = data.get('password')
+        if not password:
+            return JsonResponse({'error': '비밀번호를 입력해야 합니다.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not user.check_password(password):
+            return JsonResponse({'error': '비밀번호가 일치하지 않습니다.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.username = f"{user.username}_del_{current_time.strftime('%Y%m%d%H%M%S')}"
+        user.email = f"{user.email}_del_{current_time.strftime('%Y%m%d%H%M%S')}"
+
+        user.is_active = False
+        user.deleted_at = current_time
+        user.save()
+        return JsonResponse({'message': 'User successfully deactivated.'})
+
 
 @api_view(['GET'])
 def view_profile(reqeust, user_id):
@@ -212,22 +236,31 @@ def view_profile(reqeust, user_id):
 
 @swagger_auto_schema(method='patch', request_body=UserProfileSerializer)
 @api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
 def edit_profile(request):
     user = request.user
+    data = request.data
 
-    # request.data에서 'username'이 있는 경우 User 모델의 username 변경
-    new_username = request.data.get('username')
-    if new_username and new_username != user.username:
-        if UserProfile.objects.filter(username=new_username).exists():
+    # 유저명 유효성 검사
+    if 'username' in data:
+        if not 6 <= len(data['username']) <= 12 or not re.match("^[A-Za-z0-9가-힣-_]+$", data['username']):
+            return Response({"error": "유효하지 않은 사용자 이름입니다."}, status=status.HTTP_400_BAD_REQUEST)
+        if data['username'] != user.username and UserProfile.objects.filter(username=data['username']).exists():
             return Response({'error': '이미 사용되고 있는 닉네임입니다😢'}, status=status.HTTP_400_BAD_REQUEST)
-        user.username = new_username
-        user.save()
 
-    serializer = UserProfileSerializer(user, data=request.data, partial=True)
+    # 이메일 중복 체크
+    if 'email' in data and data['email'] != user.email and UserProfile.objects.filter(email=data['email']).exists():
+        return Response({'error': '이미 사용되고 있는 이메일입니다😢'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # 비밀번호 변경 시 유효성 검사 및 암호화
+    if 'password' in data:
+        is_valid, message = custom_password_validator(data['password'])
+        if not is_valid:
+            return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
+        data['password'] = make_password(data['password'])
+
+    serializer = UserProfileSerializer(user, data=data, partial=True)
     if serializer.is_valid():
-        # if 'user_img' in request.data:
-        #     url = S3ImgUploader(request.FILES['user_img'])
-        #     serializer.user_img = url.upload()
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
