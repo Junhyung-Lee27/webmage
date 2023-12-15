@@ -10,8 +10,9 @@ from django.db.models import Q
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
-# 검색 요청을 처리하는 API 뷰
-# 만다 심플 API
+# 검색 요청 처리
+
+# 만다 심플 검색
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def search_manda_simples(request):
@@ -24,7 +25,7 @@ def search_manda_simples(request):
 
     return Response(manda_simples, status=status.HTTP_200_OK)
 
-# 피드 API
+# 피드 게시물 검색
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def search_feeds(request):
@@ -37,7 +38,7 @@ def search_feeds(request):
 
     return Response(feeds, status=status.HTTP_200_OK)
 
-# 유저 추천 API
+# 추천 유저 검색
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def search_users(request):
@@ -50,7 +51,7 @@ def search_users(request):
 
     return Response(users, status=status.HTTP_200_OK)
 
-# 만다심플, 피드, 유저 API
+# 만다심플, 피드, 유저 검색 결과 통합
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def search_view(request):
