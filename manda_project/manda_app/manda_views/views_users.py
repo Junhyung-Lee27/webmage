@@ -33,21 +33,28 @@ def user_login(request):
     data = request.data
     try:
         username = data.get('username')
-        password = data.get('password')
+        provider = data.get('provider')  # provider 값을 가져옵니다.
 
-        # 유저 존재 여부 확인 (이메일 로그인 지원)
-        if '@' in username:
-            user = UserProfile.objects.filter(email=username).first()
-        else:
+        # EMAIL 회원 로그인
+        if provider == 'EMAIL':
+            # username 또는 이메일로 로그인 가능
+            if '@' in username:
+                user = UserProfile.objects.filter(email=username).first()
+            else:
+                user = UserProfile.objects.filter(username=username).first()
+
+            # 비밀번호 확인
+            password = data.get('password')
+            if not check_password(password, user.password):
+                return Response({'error': 'username과 password를 다시 확인해주세요'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # KAKAO 회원 로그인 로직
+        elif provider == 'KAKAO':
             user = UserProfile.objects.filter(username=username).first()
 
         # 유저 존재 여부 및 is_active 확인
         if not user or not user.is_active:
             return Response({'error': '존재하지 않는 회원입니다'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # 비밀번호 확인
-        if not check_password(password, user.password):
-            return Response({'error': 'username과 password를 다시 확인해주세요'}, status=status.HTTP_400_BAD_REQUEST)
 
         # 로그인 및 토큰 발급
         login(request, user)
@@ -55,7 +62,7 @@ def user_login(request):
         return Response({'token': token.key, 'user_id': user.id}, status=status.HTTP_200_OK)
 
     except KeyError:
-        return Response({'error': 'Missing username or password'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'error': 'Missing username or provider'}, status=status.HTTP_400_BAD_REQUEST)
     
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -68,9 +75,13 @@ def custom_password_validator(password):
     if len(password) < 8:
         return False, "비밀번호는 최소 8자 이상이어야 합니다."
 
-    # 문자, 숫자, 기호 중 2종류 이상 조합
-    if not re.match(r'((?=.*[A-Za-z])(?=.*\d)|(?=.*[A-Za-z])(?=.*[!@#$%^&*])|(?=.*\d)(?=.*[!@#$%^&*]))', password):
+    # 문자(영문, 한글), 숫자, 기호 중 2종류 이상 조합
+    if not re.match(r'((?=.*[A-Za-z\uAC00-\uD7A3])(?=.*\d)|(?=.*[A-Za-z\uAC00-\uD7A3])(?=.*[!@#$%^&*])|(?=.*\d)(?=.*[!@#$%^&*]))', password):
         return False, "비밀번호는 문자, 숫자, 기호 중 2개 이상을 조합하여야 합니다."
+
+    # 문자, 숫자, 기호 모두 포함하는 경우
+    if re.match(r'(?=.*[A-Za-z\uAC00-\uD7A3])(?=.*\d)(?=.*[!@#$%^&*])', password):
+        return True, ""
 
     return True, ""
 
@@ -78,31 +89,37 @@ def custom_password_validator(password):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def sign_up(request):
+    provider = request.data['provider']
+    email = request.data['email']
+    username = request.data['username']
+
+    # KAKAO 로그인 예외 처리
+    if provider == 'KAKAO':
+        existing_user = UserProfile.objects.filter(email=email, is_active=True)
+        if existing_user.exists():
+            return Response({'username': existing_user.first().username}, status=status.HTTP_200_OK)
+        
     serializer = UserSerializer(data=request.data)
-
+    
     if serializer.is_valid():
-        username = serializer.validated_data.get('username')
-        email = serializer.validated_data.get('email')
-        password = serializer.validated_data.get('password')
-        provider = serializer.validated_data.get('provider')
-
-        # KAKAO 로그인 예외 처리
-        if provider == "KAKAO":
-            existing_user = UserProfile.objects.filter(email=email, is_active=True).exists()
-            if existing_user:
-                return Response({'username': username}, status=status.HTTP_200_OK)
+        existing_user_by_username = UserProfile.objects.filter(username=username).first()
+        existing_user_by_email = UserProfile.objects.filter(email=email).first()
         
         # 유저명 유효성 검사
         if not 6 <= len(username) <= 12 or not re.match("^[A-Za-z0-9가-힣-_]+$", username):
             return Response({"error": "유효하지 않은 사용자 이름입니다."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 유저명, 이메일 중복 검사
-        if UserProfile.objects.filter(username=username).exists():
+        # 유저명 중복 검사
+        if existing_user_by_username:
             return Response({"error": "이미 사용 중인 사용자 이름입니다."}, status=status.HTTP_400_BAD_REQUEST)
-        if UserProfile.objects.filter(email=email).exists():
+        
+        # 이메일 중복 검사
+        if existing_user_by_email:
             return Response({"error": "이미 사용 중인 이메일입니다."}, status=status.HTTP_400_BAD_REQUEST)
 
+
         # 비밀번호 유효성 검사
+        password = serializer.validated_data.get('password')
         is_valid, message = custom_password_validator(password)
         if not is_valid:
           return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
