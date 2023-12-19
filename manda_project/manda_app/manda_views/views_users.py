@@ -1,6 +1,7 @@
 from django.shortcuts import get_object_or_404
 from django.core.exceptions import ObjectDoesNotExist
 from django.core import serializers
+from django.core.paginator import Paginator, EmptyPage
 from django.contrib.auth import login, logout, authenticate
 from django.contrib.auth.models import User
 from django.contrib.auth.decorators import login_required
@@ -10,7 +11,7 @@ from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.utils.dateformat import DateFormat
 from django.utils import timezone
-from django.db.models import Sum
+from django.db.models import Sum, Q, F, Count, FloatField, ExpressionWrapper
 from rest_framework import status
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
@@ -19,8 +20,9 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.authtoken.models import Token
 from ..serializers.user_serializer import UserSerializer, UserAuthenticationSerializer, UserProfileSerializer
 from .utils import generate_temp_password, send_temp_password_email
-from ..models import UserProfile, Follow, BlockedUser, MandaContent, MandaSub
+from ..models import UserProfile, Follow, BlockedUser, MandaContent, MandaSub, Comment, Reaction
 from ..image_uploader import S3ImgUploader
+from datetime import timedelta
 import re
 
 from drf_yasg.utils import swagger_auto_schema
@@ -33,7 +35,7 @@ def user_login(request):
     data = request.data
     try:
         username = data.get('username')
-        provider = data.get('provider')  # provider 값을 가져옵니다.
+        provider = data.get('provider')
 
         # EMAIL 회원 로그인
         if provider == 'EMAIL':
@@ -282,6 +284,191 @@ def edit_profile(request):
         return Response(serializer.data, status=status.HTTP_200_OK)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+def construct_user_entries(user_profiles, current_user):
+    user_profile_entries = []
+
+    for user_profile in user_profiles:
+        is_following = Follow.objects.filter(
+            followed_user=user_profile, following_user=current_user
+        ).exists()
+
+        user_entry = {
+            'id': user_profile.id,
+            'username': user_profile.username,
+            'userImg': user_profile.user_image,
+            'userPosition': user_profile.user_position,
+            'userHash': user_profile.user_hash,
+            'userInfo': user_profile.user_info,
+            'is_following': is_following
+        }
+        user_profile_entries.append(user_entry)
+
+    return user_profile_entries
+
+@api_view(['GET'])
+def search_users(request):
+    search_keyword = request.GET.get('keyword', '')
+    current_user = request.user
+
+    # 차단 유저 제외
+    blocked_user_ids = BlockedUser.objects.filter(blocker=current_user).values_list('blocked', flat=True)
+    
+    # 검색어에 따른 User 객체 검색
+    combined_users = UserProfile.objects.filter(
+        Q(is_active=True) &
+        (
+            Q(username__icontains=search_keyword) |
+            Q(user_position__icontains=search_keyword) |
+            Q(user_hash__icontains=search_keyword) |
+            Q(user_info__icontains=search_keyword)
+        )
+    ).distinct('id').exclude(id__in=blocked_user_ids)
+
+    # 페이지네이션
+    default_page = 1
+    page = int(request.GET.get('page', default_page))
+    page_size = 6
+    paginator = Paginator(combined_users, page_size)
+
+    try:
+        searched_user_page = paginator.page(page)
+    except EmptyPage:
+        return Response({'message': 'No more pages', 'data': []}, status=status.HTTP_200_OK)
+
+    # 데이터 구조화
+    searched_users_entries = construct_user_entries(searched_user_page, current_user)
+
+    return Response(searched_users_entries, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+def get_trending_users(request):
+    user = request.user
+    current_time = timezone.now()
+    one_month_ago = current_time - timedelta(days=30)
+
+    # 차단 유저 제외
+    blocked_user_ids = BlockedUser.objects.filter(blocker=user).values_list('blocked', flat=True)
+
+    # 가중치 설정
+    weight_new_followers = 7  # 최근 1개월간 팔로워 증가 (팔로우 = 한 번만 가능)
+    weight_feed_comments = 2  # 최근 1개월간 받은 댓글 (댓글 = 각각의 피드에 무제한으로 가능)
+    weight_feed_reactions = 1  # 최근 1개월간 받은 이모티콘 리액션 (리액션 = 각각의 피드에 5회씩 가능)
+
+    trending_users = UserProfile.objects.annotate(
+        new_followers=Count('follower', filter=Q(follower__created_at__gte=one_month_ago)),
+        feed_comments=Count('feed__comment', filter=Q(feed__comment__created_at__gte=one_month_ago)),
+        feed_reactions=Count('feed__reaction', filter=Q(feed__reaction__created_at__gte=one_month_ago))
+    ).annotate(
+        total_score=ExpressionWrapper(
+            weight_new_followers * F('new_followers') +
+            weight_feed_comments * F('feed_comments') +
+            weight_feed_reactions * F('feed_reactions'),
+            output_field=FloatField()
+        )
+    ).exclude(id__in=blocked_user_ids).order_by('-total_score')[:6]
+
+    # 페이지네이션
+    default_page = 1
+    page = request.GET.get('page', default_page)
+    page_size = 6
+    paginator = Paginator(trending_users, page_size)
+    try:
+        trending_users_page = paginator.page(page)
+    except EmptyPage:
+        return Response({'message': 'No more pages', 'data': []}, status=status.HTTP_200_OK)
+
+    # 데이터 구조화
+    trending_users_entries = construct_user_entries(trending_users_page, user)
+    
+    return Response(trending_users_entries)
+
+@api_view(['GET'])
+def get_familiar_users(request):
+    user = request.user
+
+    # 차단 유저 제외
+    blocked_user_ids = BlockedUser.objects.filter(blocker=user).values_list('blocked', flat=True)
+
+    # 1. 내가 팔로우하는 유저가 팔로우하는 유저, 나를 팔로우하는 유저가 팔로우하는 유저
+    my_followings = Follow.objects.filter(following_user=user).values_list('followed_user', flat=True)
+    followings_of_my_followings = Follow.objects.filter(following_user__in=my_followings).values_list('followed_user', flat=True)
+    my_followers = Follow.objects.filter(followed_user=user).values_list('following_user', flat=True)
+    followings_of_my_followers = Follow.objects.filter(following_user__in=my_followers).values_list('followed_user', flat=True)
+
+    # 2. 내가 댓글을 남긴 피드의 작성자, 내 피드에 댓글을 남긴 유저
+    commented_feed_authors = Comment.objects.filter(user=user).values_list('feed__user', flat=True)
+    users_commented_on_my_feeds = Comment.objects.filter(feed__user=user).values_list('user', flat=True)
+
+    # 3. 내가 이모지 반응을 남긴 피드의 작성자, 내 피드에 이모지 반응을 남긴 유저
+    reacted_feed_authors = Reaction.objects.filter(user=user).values_list('feed__user', flat=True)
+    users_reacted_on_my_feeds = Reaction.objects.filter(feed__user=user).values_list('user', flat=True)
+
+    # 유저 ID 집합 생성
+    familiar_user_ids = set(followings_of_my_followings | followings_of_my_followers | 
+                            commented_feed_authors | users_commented_on_my_feeds | 
+                            reacted_feed_authors | users_reacted_on_my_feeds)
+
+    familiar_users = UserProfile.objects.filter(id__in=familiar_user_ids).exclude(id__in=blocked_user_ids)
+
+    # 페이지네이션
+    default_page = 1
+    page = request.GET.get('page', default_page)
+    page_size = 6
+    paginator = Paginator(familiar_users, page_size)
+
+    try:
+        users_page = paginator.page(page)
+    except EmptyPage:
+        return Response({'message': 'No more pages', 'data': []}, status=status.HTTP_200_OK)
+
+    # 데이터 구조화
+    familiar_users_entries = construct_user_entries(users_page, user)
+    
+    return Response(familiar_users_entries)
+
+@api_view(['GET'])
+def get_active_users(request):
+    user = request.user
+    current_time = timezone.now()
+    one_month_ago = current_time - timedelta(days=30)
+
+    # 차단 유저 제외
+    blocked_user_ids = BlockedUser.objects.filter(blocker=user).values_list('blocked', flat=True)
+
+    # 가중치 설정
+    weight_feed = 20  # 최근 1개월간 게시물 수
+    weight_comment = 5  # 최근 1개월간 입력한 댓글
+    weight_reaction = 1  # 최근 1개월간 입력한 이모티콘 리액션
+
+    # 활동 기준에 따른 유저 추출
+    active_users = UserProfile.objects.annotate(
+        feed_count=Count('feed', filter=Q(feed__created_at__gte=one_month_ago)),
+        comment_count=Count('feed__comment', filter=Q(feed__comment__created_at__gte=one_month_ago)),
+        reaction_count=Count('feed__reaction', filter=Q(feed__reaction__created_at__gte=one_month_ago))
+    ).annotate(
+        total_score=ExpressionWrapper(
+            weight_feed * F('feed_count') +
+            weight_comment * F('comment_count') +
+            weight_reaction * F('reaction_count'),
+            output_field=FloatField()
+        )
+    ).exclude(id__in=blocked_user_ids).order_by('-total_score')
+
+    # 페이지네이션
+    default_page = 1
+    page = request.GET.get('page', default_page)
+    page_size = 6
+    paginator = Paginator(active_users, page_size)
+
+    try:
+        users_page = paginator.page(page)
+    except EmptyPage:
+        return Response({'message': 'No more pages', 'data': []}, status=status.HTTP_200_OK)
+
+    # 데이터 구조화
+    active_users_entries = construct_user_entries(users_page, user)
+    
+    return Response(active_users_entries)
 
 @api_view(['POST'])
 def follow_user(request):
