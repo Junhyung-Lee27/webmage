@@ -58,6 +58,10 @@ def return_feed(request, user_id):
             and comment.user.id not in blocked_user_ids
         ]
 
+        reactions = Reaction.objects.filter(feed_id=feed.id).values_list('emoji_name', flat=True)
+        emoji_count = Counter(reactions)
+        user_reactions = Reaction.objects.filter(user=request.user, feed_id=feed.id).values_list('emoji_name', flat=True)
+
         feed_entry = {
             'userInfo': {
                 'profile_img': userprofile.user_image if userprofile else None,
@@ -77,7 +81,8 @@ def return_feed(request, user_id):
                 'content_img': str(feed.feed_image),
                 'created_at': feed.created_at,
                 'tags': feed.feed_hash,
-                'emoji_count': feed.emoji_count,
+                'emoji_count': dict(emoji_count),
+                'user_reactions': list(user_reactions),
                 'comment_info': comments_list
             }
         }
@@ -218,6 +223,10 @@ def recommend_feeds(request):
             and comment.user.id not in blocked_user_ids
         ]
 
+        reactions = Reaction.objects.filter(feed_id=feed.id).values_list('emoji_name', flat=True)
+        emoji_count = Counter(reactions)
+        user_reactions = Reaction.objects.filter(user=request.user, feed_id=feed.id).values_list('emoji_name', flat=True)
+
         feed_entry = {
             'userInfo': {
                 'profile_img': userprofile.user_image if userprofile else None,
@@ -237,7 +246,8 @@ def recommend_feeds(request):
                 'content_img': str(feed.feed_image),
                 'created_at': feed.created_at,
                 'tags': feed.feed_hash,
-                'emoji_count': feed.emoji_count,
+                'emoji_count': dict(emoji_count),
+                'user_reactions': list(user_reactions),
                 'comment_info': comments_list,
             }
         }
