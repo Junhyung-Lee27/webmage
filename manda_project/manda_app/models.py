@@ -107,6 +107,7 @@ class Reaction(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, db_index=True)
     feed = models.ForeignKey(Feed, on_delete=models.CASCADE, db_index=True)
     emoji_name = models.CharField(max_length=50)
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
 
 #알람(댓글, 좋아요, 팔로우)
 class Notification(models.Model):

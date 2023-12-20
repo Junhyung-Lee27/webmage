@@ -12,6 +12,7 @@ urlpatterns = [
     path('profile/edit', views_users.edit_profile, name='edit_profile'),
     path('profile/<int:user_id>', views_users.view_profile, name='view_profile'),
     path('search/', views_users.search_users, name='search_users'),
+    path('recommend/', views_users.get_recommended_users, name='recommended_users'),
     path('recommend/trending_users', views_users.get_trending_users, name='trending_users'),
     path('recommend/familiar_users', views_users.get_familiar_users, name='familiar_users'),
     path('recommend/active_users', views_users.get_active_users, name='active_users'),

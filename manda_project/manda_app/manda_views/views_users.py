@@ -23,6 +23,7 @@ from .utils import generate_temp_password, send_temp_password_email
 from ..models import UserProfile, Follow, BlockedUser, MandaContent, MandaSub, Comment, Reaction
 from ..image_uploader import S3ImgUploader
 from datetime import timedelta
+from collections import defaultdict
 import re
 
 from drf_yasg.utils import swagger_auto_schema
@@ -310,8 +311,9 @@ def search_users(request):
     search_keyword = request.GET.get('keyword', '')
     current_user = request.user
 
-    # 차단 유저 제외
-    blocked_user_ids = BlockedUser.objects.filter(blocker=current_user).values_list('blocked', flat=True)
+    # 검색 결과에 제외할 유저
+    excluded_user_ids = [current_user.id]
+    excluded_user_ids.extend(BlockedUser.objects.filter(blocker=current_user).values_list('blocked', flat=True))
     
     # 검색어에 따른 User 객체 검색
     combined_users = UserProfile.objects.filter(
@@ -322,7 +324,7 @@ def search_users(request):
             Q(user_hash__icontains=search_keyword) |
             Q(user_info__icontains=search_keyword)
         )
-    ).distinct('id').exclude(id__in=blocked_user_ids)
+    ).distinct('id').exclude(id__in=excluded_user_ids)
 
     # 페이지네이션
     default_page = 1
@@ -340,14 +342,15 @@ def search_users(request):
 
     return Response(searched_users_entries, status=status.HTTP_200_OK)
 
-@api_view(['GET'])
 def get_trending_users(request):
-    user = request.user
+    current_user = request.user
     current_time = timezone.now()
     one_month_ago = current_time - timedelta(days=30)
 
-    # 차단 유저 제외
-    blocked_user_ids = BlockedUser.objects.filter(blocker=user).values_list('blocked', flat=True)
+    # 제외할 유저
+    excluded_user_ids = [current_user.id]
+    excluded_user_ids.extend(BlockedUser.objects.filter(blocker=current_user).values_list('blocked', flat=True))
+    excluded_user_ids.extend(Follow.objects.filter(following_user=current_user).values_list('followed_user', flat=True))
 
     # 가중치 설정
     weight_new_followers = 7  # 최근 1개월간 팔로워 증가 (팔로우 = 한 번만 가능)
@@ -355,9 +358,9 @@ def get_trending_users(request):
     weight_feed_reactions = 1  # 최근 1개월간 받은 이모티콘 리액션 (리액션 = 각각의 피드에 5회씩 가능)
 
     trending_users = UserProfile.objects.annotate(
-        new_followers=Count('follower', filter=Q(follower__created_at__gte=one_month_ago)),
-        feed_comments=Count('feed__comment', filter=Q(feed__comment__created_at__gte=one_month_ago)),
-        feed_reactions=Count('feed__reaction', filter=Q(feed__reaction__created_at__gte=one_month_ago))
+        new_followers=Count('follower', filter=Q(follower__created_at__gte=one_month_ago), distinct=True),
+        feed_comments=Count('feed__comment', filter=Q(feed__comment__created_at__gte=one_month_ago), distinct=True),
+        feed_reactions=Count('feed__reaction', filter=Q(feed__reaction__created_at__gte=one_month_ago), distinct=True)
     ).annotate(
         total_score=ExpressionWrapper(
             weight_new_followers * F('new_followers') +
@@ -365,7 +368,7 @@ def get_trending_users(request):
             weight_feed_reactions * F('feed_reactions'),
             output_field=FloatField()
         )
-    ).exclude(id__in=blocked_user_ids).order_by('-total_score')[:6]
+    ).filter(is_active=True).exclude(id__in=excluded_user_ids).order_by('-total_score')[:60]
 
     # 페이지네이션
     default_page = 1
@@ -378,37 +381,57 @@ def get_trending_users(request):
         return Response({'message': 'No more pages', 'data': []}, status=status.HTTP_200_OK)
 
     # 데이터 구조화
-    trending_users_entries = construct_user_entries(trending_users_page, user)
+    trending_users_entries = construct_user_entries(trending_users_page, current_user)
     
     return Response(trending_users_entries)
 
-@api_view(['GET'])
 def get_familiar_users(request):
-    user = request.user
+    current_user = request.user
 
-    # 차단 유저 제외
-    blocked_user_ids = BlockedUser.objects.filter(blocker=user).values_list('blocked', flat=True)
+    # 제외할 유저
+    excluded_user_ids = [current_user.id]
+    excluded_user_ids.extend(BlockedUser.objects.filter(blocker=current_user).values_list('blocked', flat=True))
+    my_followings = Follow.objects.filter(following_user=current_user).values_list('followed_user', flat=True)
+    excluded_user_ids.extend(my_followings)
 
     # 1. 내가 팔로우하는 유저가 팔로우하는 유저, 나를 팔로우하는 유저가 팔로우하는 유저
-    my_followings = Follow.objects.filter(following_user=user).values_list('followed_user', flat=True)
-    followings_of_my_followings = Follow.objects.filter(following_user__in=my_followings).values_list('followed_user', flat=True)
-    my_followers = Follow.objects.filter(followed_user=user).values_list('following_user', flat=True)
-    followings_of_my_followers = Follow.objects.filter(following_user__in=my_followers).values_list('followed_user', flat=True)
+    followings_of_my_followings = UserProfile.objects.filter(follower__following_user__in=my_followings).exclude(id__in=excluded_user_ids).distinct()[:10]
+    my_followers = UserProfile.objects.filter(following__followed_user=current_user).exclude(id__in=excluded_user_ids).distinct()[:10]
+    followings_of_my_followers = UserProfile.objects.filter(follower__following_user__in=my_followers).exclude(id__in=excluded_user_ids).distinct()[:10]
 
-    # 2. 내가 댓글을 남긴 피드의 작성자, 내 피드에 댓글을 남긴 유저
-    commented_feed_authors = Comment.objects.filter(user=user).values_list('feed__user', flat=True)
-    users_commented_on_my_feeds = Comment.objects.filter(feed__user=user).values_list('user', flat=True)
-
+     # 2. 내가 댓글을 남긴 피드의 작성자, 내 피드에 댓글을 남긴 유저
+    commented_feed_authors = UserProfile.objects.filter(feed__comment__user=current_user).exclude(id__in=excluded_user_ids).distinct()[:10]
+    users_commented_on_my_feeds = UserProfile.objects.filter(comment__feed__user=current_user).exclude(id__in=excluded_user_ids).distinct()[:10]
+ 
     # 3. 내가 이모지 반응을 남긴 피드의 작성자, 내 피드에 이모지 반응을 남긴 유저
-    reacted_feed_authors = Reaction.objects.filter(user=user).values_list('feed__user', flat=True)
-    users_reacted_on_my_feeds = Reaction.objects.filter(feed__user=user).values_list('user', flat=True)
+    reacted_feed_authors = UserProfile.objects.filter(feed__reaction__user=current_user).exclude(id__in=excluded_user_ids).distinct()[:10]
+    users_reacted_on_my_feeds = UserProfile.objects.filter(reaction__feed__user=current_user).exclude(id__in=excluded_user_ids).distinct()[:10]
 
-    # 유저 ID 집합 생성
-    familiar_user_ids = set(followings_of_my_followings | followings_of_my_followers | 
-                            commented_feed_authors | users_commented_on_my_feeds | 
-                            reacted_feed_authors | users_reacted_on_my_feeds)
+    # 가중치 적용
+    weighted_my_followers = [(user, 4) for user in my_followers]  # 나를 팔로우하는 유저
+    weighted_followings_of_my_followings = [(user, 4) for user in followings_of_my_followings]  # 내가 팔로우하는 유저가 팔로우하는 유저
+    weighted_followings_of_my_followers = [(user, 3) for user in followings_of_my_followers]  # 나를 팔로우하는 유저가 팔로우하는 유저
+    weighted_commented_feed_authors = [(user, 3) for user in commented_feed_authors]  # 내가 댓글 남긴 피드 작성 유저
+    weighted_users_commented_on_my_feeds = [(user, 2) for user in users_commented_on_my_feeds]  # 나한테 댓글 남긴 피드 작성 유저
+    weighted_reacted_feed_authors = [(user, 2) for user in reacted_feed_authors]  # 내가 이모지 남긴 피드 작성 유저
+    weighted_users_reacted_on_my_feeds = [(user, 1) for user in users_reacted_on_my_feeds]  # 나한테 이모지 남긴 피드 작성 유저
 
-    familiar_users = UserProfile.objects.filter(id__in=familiar_user_ids).exclude(id__in=blocked_user_ids)
+    all_users = weighted_my_followers + weighted_followings_of_my_followings + \
+        weighted_followings_of_my_followers + weighted_commented_feed_authors + \
+        weighted_users_commented_on_my_feeds + weighted_reacted_feed_authors + \
+        weighted_users_reacted_on_my_feeds
+
+    # 중복 유저 가중치 계산
+    user_weights = defaultdict(float)
+    unique_users = set()
+
+    for user, weight in all_users:
+        if user not in unique_users:
+            unique_users.add(user)
+        user_weights[user] += weight
+
+    # 가중치 기준 정렬
+    familiar_users = sorted(user_weights.items(), key=lambda x: x[1], reverse=True)
 
     # 페이지네이션
     default_page = 1
@@ -417,23 +440,25 @@ def get_familiar_users(request):
     paginator = Paginator(familiar_users, page_size)
 
     try:
-        users_page = paginator.page(page)
+        familiar_users_page = paginator.page(page)
     except EmptyPage:
         return Response({'message': 'No more pages', 'data': []}, status=status.HTTP_200_OK)
-
+    
     # 데이터 구조화
-    familiar_users_entries = construct_user_entries(users_page, user)
+    user_profile_objects = [user_tuple[0] for user_tuple in familiar_users_page]
+    familiar_users_entries = construct_user_entries(user_profile_objects, current_user)
     
     return Response(familiar_users_entries)
 
-@api_view(['GET'])
 def get_active_users(request):
-    user = request.user
+    current_user = request.user
     current_time = timezone.now()
     one_month_ago = current_time - timedelta(days=30)
 
-    # 차단 유저 제외
-    blocked_user_ids = BlockedUser.objects.filter(blocker=user).values_list('blocked', flat=True)
+    # 제외할 유저
+    excluded_user_ids = [current_user.id]
+    excluded_user_ids.extend(BlockedUser.objects.filter(blocker=current_user).values_list('blocked', flat=True))
+    excluded_user_ids.extend(Follow.objects.filter(following_user=current_user).values_list('followed_user', flat=True))
 
     # 가중치 설정
     weight_feed = 20  # 최근 1개월간 게시물 수
@@ -442,9 +467,9 @@ def get_active_users(request):
 
     # 활동 기준에 따른 유저 추출
     active_users = UserProfile.objects.annotate(
-        feed_count=Count('feed', filter=Q(feed__created_at__gte=one_month_ago)),
-        comment_count=Count('feed__comment', filter=Q(feed__comment__created_at__gte=one_month_ago)),
-        reaction_count=Count('feed__reaction', filter=Q(feed__reaction__created_at__gte=one_month_ago))
+        feed_count=Count('feed', filter=Q(feed__created_at__gte=one_month_ago), distinct=True),
+        comment_count=Count('feed__comment', filter=Q(feed__comment__created_at__gte=one_month_ago), distinct=True),
+        reaction_count=Count('feed__reaction', filter=Q(feed__reaction__created_at__gte=one_month_ago), distinct=True)
     ).annotate(
         total_score=ExpressionWrapper(
             weight_feed * F('feed_count') +
@@ -452,7 +477,7 @@ def get_active_users(request):
             weight_reaction * F('reaction_count'),
             output_field=FloatField()
         )
-    ).exclude(id__in=blocked_user_ids).order_by('-total_score')
+    ).filter(is_active=True).exclude(id__in=excluded_user_ids).order_by('-total_score')[:60]
 
     # 페이지네이션
     default_page = 1
@@ -461,14 +486,28 @@ def get_active_users(request):
     paginator = Paginator(active_users, page_size)
 
     try:
-        users_page = paginator.page(page)
+        active_users_page = paginator.page(page)
     except EmptyPage:
         return Response({'message': 'No more pages', 'data': []}, status=status.HTTP_200_OK)
 
     # 데이터 구조화
-    active_users_entries = construct_user_entries(users_page, user)
+    active_users_entries = construct_user_entries(active_users_page, current_user)
     
     return Response(active_users_entries)
+
+@api_view(['GET'])
+def get_recommended_users(request):
+    trending_users = get_trending_users(request)
+    familiar_users = get_familiar_users(request)
+    active_users = get_active_users(request)
+
+    results = {
+        'trending_users': trending_users.data,
+        'familiar_users': familiar_users.data,
+        'active_users': active_users.data,
+    }
+
+    return Response(results, status=status.HTTP_200_OK)
 
 @api_view(['POST'])
 def follow_user(request):
