@@ -7,9 +7,6 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q
 
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
-
 # 검색 요청 처리
 
 # 만다 심플 검색
