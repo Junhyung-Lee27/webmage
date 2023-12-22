@@ -10,6 +10,7 @@ urlpatterns = [
     path('write/', views_feed.write_feed, name='write_feed'),
     path('edit/<int:feed_id>/', views_feed.edit_feed, name='edit_feed'),
     path('delete/<int:feed_id>/', views_feed.delete_feed, name='delete_feed'),
+    # path('search/', views_feed.search_feeds, name='search_feeds'),
 
     # 피드 신고
     path('report/', views_feed.report_feed, name='report_feed'),
