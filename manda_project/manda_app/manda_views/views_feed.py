@@ -183,7 +183,7 @@ def recommend_feeds(request):
     for feed, weight in all_feeds:
         if feed not in unique_feeds:
             unique_feeds.add(feed)
-            feed_weights[feed] += weight
+        feed_weights[feed] += weight
 
     # 가중치 정렬
     recommended_feeds = sorted(feed_weights.items(), key=lambda x: x[1], reverse=True)
