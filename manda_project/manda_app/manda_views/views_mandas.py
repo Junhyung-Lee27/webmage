@@ -1,17 +1,17 @@
-from rest_framework import status
+from django.core.paginator import Paginator, EmptyPage
+from django.contrib.auth.models import User
+from django.db.models import Max, Q
+from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
-from django.contrib.auth.models import User
-from rest_framework.response import Response
-from django.http import HttpResponse, JsonResponse
+from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from ..models import MandaMain, MandaSub, MandaContent, UserProfile
-from ..serializers.manda_serializer import *
-from django.db.models import Max
-
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from ..models import MandaMain, MandaSub, MandaContent, UserProfile, BlockedUser, Follow
+from ..serializers.manda_serializer import *
 
 @swagger_auto_schema(method='post', request_body=MandaMainSerializer)
 @api_view(['POST'])
@@ -287,3 +287,54 @@ def manda_main_sub(request, manda_id):
         main_entry['subs'].append(sub_entry)
 
     return Response(main_entry, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+def search_manda_main_sub(request):
+    search_keyword = request.GET.get('keyword', '')
+    current_user = request.user
+
+    # 제외할 만다라트 목록
+    blocked_users_list = BlockedUser.objects.filter(blocker=current_user).values_list('blocked_id', flat=True)
+    inactive_users_list = UserProfile.objects.filter(is_active=False).values_list('id', flat=True)
+    excluded_user_ids = set([current_user.id] + list(blocked_users_list) + list(inactive_users_list))
+    
+    # 최종 쿼리
+    combined_mandamains = MandaMain.objects.exclude(user_id__in=excluded_user_ids).filter(
+        Q(main_title__icontains=search_keyword) |
+        Q(user__username__icontains=search_keyword)
+    ).prefetch_related('mandasub_set')[:20]
+
+    # 페이지네이션 적용
+    default_page = 1
+    page = int(request.GET.get('page', default_page))
+    page_size = 3
+    paginator = Paginator(combined_mandamains, page_size)
+
+    try:
+        searched_mandamains = paginator.page(page)
+    except EmptyPage:
+        return Response({'message': 'No more pages', 'data': []}, status=status.HTTP_200_OK)
+
+    # 데이터 구조화
+    manda_simples = []
+    for mandamain in searched_mandamains:
+        user = mandamain.user
+
+        is_following = Follow.objects.filter(
+            followed_user=user, following_user=current_user
+        ).exists()
+
+        main_entry = {
+            'id': mandamain.id,
+            'userId': user.id,
+            'username': user.username,
+            'userPosition': user.user_position,
+            'userHash': user.user_hash,
+            'userInfo': user.user_info,
+            'is_following': is_following,
+            'mainTitle': mandamain.main_title,
+            'subs': [{'id': sub.id, 'successCount': sub.success_count, 'subTitle': sub.sub_title} for sub in mandamain.mandasub_set.all()]
+        }
+        manda_simples.append(main_entry)
+
+    return Response(manda_simples, status=status.HTTP_200_OK)
