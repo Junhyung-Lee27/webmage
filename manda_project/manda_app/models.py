@@ -154,10 +154,6 @@ class ChatMessage(models.Model):
         self.chatroom.latest_message_time = self.created_at
         self.chatroom.save()
 
-from django.db import models
-from django.conf import settings
-from django.utils import timezone
-
 class BlockedUser(models.Model):
     blocker = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='blocking_users')
     blocked = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='blocked_users')
