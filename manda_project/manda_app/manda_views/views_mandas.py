@@ -300,14 +300,13 @@ def search_manda_main_sub(request):
     
     # 최종 쿼리
     combined_mandamains = MandaMain.objects.exclude(user_id__in=excluded_user_ids).filter(
-        Q(main_title__icontains=search_keyword) |
-        Q(user__username__icontains=search_keyword)
+        main_title__icontains=search_keyword
     ).prefetch_related('mandasub_set')[:20]
 
     # 페이지네이션 적용
     default_page = 1
     page = int(request.GET.get('page', default_page))
-    page_size = 3
+    page_size = 4
     paginator = Paginator(combined_mandamains, page_size)
 
     try:
