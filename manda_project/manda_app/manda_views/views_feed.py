@@ -16,6 +16,57 @@ from django.utils.dateformat import DateFormat
 from datetime import timedelta
 from collections import defaultdict, Counter
 
+# 피드 데이터 구조화
+def build_feeds_data(request, feed, reported_comment_ids, excluded_user_ids):
+    userprofile = feed.user
+    main_title = feed.main_id.main_title
+    sub_title = feed.sub_id.sub_title
+    content = feed.cont_id.content
+    success_count = feed.cont_id.success_count
+    is_following = Follow.objects.filter(followed_user=userprofile, following_user=request.user).exists()
+
+    comments_list = [
+        {
+            'username': comment.user.username, 
+            'comment': comment.comment, 
+            'upload_date': comment.created_at
+        } 
+        for comment in feed.comment_set.all() 
+        if comment.deleted_at is None
+        and comment.id not in reported_comment_ids
+        and comment.user.id not in excluded_user_ids
+    ]
+
+    reactions = Reaction.objects.filter(feed_id=feed.id).values_list('emoji_name', flat=True)
+    emoji_count = Counter(reactions)
+    user_reactions = Reaction.objects.filter(user=request.user, feed_id=feed.id).values_list('emoji_name', flat=True)
+
+    feed_entry = {
+        'userInfo': {
+            'profile_img': userprofile.user_image if userprofile else None,
+            'userPosition': userprofile.user_position if userprofile else None,
+            'success': userprofile.success_count if userprofile else None,
+            'userName': userprofile.username,
+            'id' : userprofile.id,
+            'is_following': is_following,
+        },
+        'feedInfo': {
+            'id': feed.id,
+            'main_title': main_title,
+            'sub_title': sub_title,
+            'content': content,
+            'success_count': success_count,
+            'post': feed.feed_contents,
+            'content_img': str(feed.feed_image),
+            'created_at': feed.created_at,
+            'tags': feed.feed_hash,
+            'emoji_count': dict(emoji_count),
+            'user_reactions': list(user_reactions),
+            'comment_info': comments_list
+        }
+    }
+    return feed_entry
+
 # Get feed of a specific user
 @api_view(['GET'])
 def return_feed(request, user_id):
@@ -39,53 +90,7 @@ def return_feed(request, user_id):
     # 데이터 구조화
     feed_entries = []
     for feed in feeds_page:
-        userprofile = feed.user
-        main_title = feed.main_id.main_title
-        sub_title = feed.sub_id.sub_title
-        content = feed.cont_id.content
-        success_count = feed.cont_id.success_count
-        is_following = Follow.objects.filter(followed_user=userprofile, following_user=request.user).exists()
-
-        comments_list = [
-            {
-                'username': comment.user.username, 
-                'comment': comment.comment, 
-                'upload_date': comment.created_at
-            } 
-            for comment in feed.comment_set.all() 
-            if comment.deleted_at is None
-            and comment.id not in reported_comment_ids
-            and comment.user.id not in blocked_user_ids
-        ]
-
-        reactions = Reaction.objects.filter(feed_id=feed.id).values_list('emoji_name', flat=True)
-        emoji_count = Counter(reactions)
-        user_reactions = Reaction.objects.filter(user=request.user, feed_id=feed.id).values_list('emoji_name', flat=True)
-
-        feed_entry = {
-            'userInfo': {
-                'profile_img': userprofile.user_image if userprofile else None,
-                'userPosition': userprofile.user_position if userprofile else None,
-                'success': userprofile.success_count if userprofile else None,
-                'userName': userprofile.username,
-                'id' : userprofile.id,
-                'is_following': is_following,
-            },
-            'feedInfo': {
-                'id': feed.id,
-                'main_title': main_title,
-                'sub_title': sub_title,
-                'content': content,
-                'success_count': success_count,
-                'post': feed.feed_contents,
-                'content_img': str(feed.feed_image),
-                'created_at': feed.created_at,
-                'tags': feed.feed_hash,
-                'emoji_count': dict(emoji_count),
-                'user_reactions': list(user_reactions),
-                'comment_info': comments_list
-            }
-        }
+        feed_entry = build_feeds_data(request, feed, reported_comment_ids, blocked_user_ids)
         feed_entries.append(feed_entry)
         
     return Response(feed_entries)
@@ -95,44 +100,47 @@ def return_feed(request, user_id):
 def recommend_feeds(request):
     user = request.user
 
-    # 차단된 유저 및 피드 게시물
+    # 차단한 유저 및 게시물, 댓글
     blocked_user_ids = BlockedUser.objects.filter(blocker=user).values_list('blocked', flat=True)
+    inactive_users_list = UserProfile.objects.filter(is_active=False).values_list('id', flat=True)
+    excluded_user_ids = set(list(blocked_user_ids) + list(inactive_users_list))
     reported_feed_ids = ReportedFeed.objects.filter(reporter=user).values_list('feed', flat=True)
+    reported_comment_ids = ReportedComment.objects.filter(reporter=user).values_list('comment', flat=True)
     
     # 추천 로직
     # 1 내가 팔로우하는 유저, 나를 팔로우하는 유저
     following_user_ids = Follow.objects.filter(following_user=user).values_list('followed_user', flat=True)
     following_feeds_exclude_deleted = Feed.objects.filter(user__in=following_user_ids, user__deleted_at__isnull=True, deleted_at__isnull=True)
-    following_feeds_exclude_blocked = following_feeds_exclude_deleted.exclude(user__in=blocked_user_ids).exclude(id__in=reported_feed_ids)
+    following_feeds_exclude_blocked = following_feeds_exclude_deleted.exclude(user__in=excluded_user_ids).exclude(id__in=reported_feed_ids)
     following_feeds = following_feeds_exclude_blocked.select_related('user').prefetch_related('comment_set').order_by('-id')[:10]
     
     followed_user_ids = Follow.objects.filter(followed_user=user).values_list('following_user', flat=True)
     followed_feeds_exclude_deleted = Feed.objects.filter(user__in=followed_user_ids, user__deleted_at__isnull=True, deleted_at__isnull=True)
-    followed_feeds_exclude_blocked = followed_feeds_exclude_deleted.exclude(user__in=blocked_user_ids).exclude(id__in=reported_feed_ids)
+    followed_feeds_exclude_blocked = followed_feeds_exclude_deleted.exclude(user__in=excluded_user_ids).exclude(id__in=reported_feed_ids)
     followed_feeds = followed_feeds_exclude_blocked.select_related('user').prefetch_related('comment_set').order_by('-id')[:10]
     
     # 2 내가 댓글을 남긴 게시물의 유저, 내 피드 게시물에 댓글 남긴 유저
     commented_feed_ids = Comment.objects.filter(user=user).values_list('feed', flat=True)
     commented_user_ids = Feed.objects.filter(id__in=commented_feed_ids).values_list('user', flat=True)
     commented_user_feeds_exclude_deleted = Feed.objects.filter(user__in=commented_user_ids, user__deleted_at__isnull=True, deleted_at__isnull=True)
-    commented_user_feeds_exclude_blocked = commented_user_feeds_exclude_deleted.exclude(user__in=blocked_user_ids).exclude(id__in=reported_feed_ids)
+    commented_user_feeds_exclude_blocked = commented_user_feeds_exclude_deleted.exclude(user__in=excluded_user_ids).exclude(id__in=reported_feed_ids)
     commented_user_feeds = commented_user_feeds_exclude_blocked.select_related('user').prefetch_related('comment_set').exclude(user=user).order_by('-id')[:10]
     
     commenter_user_ids = Comment.objects.filter(feed__user=user).values_list('user', flat=True)
     commenter_feeds_exclude_deleted = Feed.objects.filter(user__in=commenter_user_ids, user__deleted_at__isnull=True, deleted_at__isnull=True)
-    commenter_feeds_exclude_blocked = commenter_feeds_exclude_deleted.exclude(user__in=blocked_user_ids).exclude(id__in=reported_feed_ids)
+    commenter_feeds_exclude_blocked = commenter_feeds_exclude_deleted.exclude(user__in=excluded_user_ids).exclude(id__in=reported_feed_ids)
     commenter_feeds = commenter_feeds_exclude_blocked.select_related('user').prefetch_related('comment_set').exclude(user=user).order_by('-id')[:10]
     
     # 3 내가 이모지 반응을 보이거나, 내 피드 게시물에 이모지를 남긴 유저
     reacted_feed_ids = Reaction.objects.filter(user=user).values_list('feed', flat=True)
     reacted_user_ids = Feed.objects.filter(id__in=reacted_feed_ids).values_list('user', flat=True)
     reacted_user_feeds_exclude_deleted = Feed.objects.filter(user__in=reacted_user_ids, user__deleted_at__isnull=True, deleted_at__isnull=True)
-    reacted_user_feeds_exclude_blocked = reacted_user_feeds_exclude_deleted.exclude(user__in=blocked_user_ids).exclude(id__in=reported_feed_ids)
+    reacted_user_feeds_exclude_blocked = reacted_user_feeds_exclude_deleted.exclude(user__in=excluded_user_ids).exclude(id__in=reported_feed_ids)
     reacted_user_feeds = reacted_user_feeds_exclude_blocked.select_related('user').prefetch_related('comment_set').exclude(user=user).order_by('-id')[:10]
 
     reactor_user_ids = Reaction.objects.filter(feed__user=user).values_list('user', flat=True)
     reactor_feeds_exclude_deleted = Feed.objects.filter(user__in=reactor_user_ids, user__deleted_at__isnull=True, deleted_at__isnull=True)
-    reactor_feeds_exclude_blocked = reactor_feeds_exclude_deleted.exclude(user__in=blocked_user_ids).exclude(id__in=reported_feed_ids)
+    reactor_feeds_exclude_blocked = reactor_feeds_exclude_deleted.exclude(user__in=excluded_user_ids).exclude(id__in=reported_feed_ids)
     reactor_feeds = reactor_feeds_exclude_blocked.select_related('user').prefetch_related('comment_set').exclude(user=user).order_by('-id')[:10]
 
     # 4. 유사한 성향의 사용자 기반 추천 피드
@@ -145,7 +153,7 @@ def recommend_feeds(request):
 
     # 시간 가중치(분 단위) 계산 및 쿼리
     popular_feeds_exclude_deleted = Feed.objects.filter(created_at__gte=recent_time_limit, user__deleted_at__isnull=True, deleted_at__isnull=True)
-    popular_feeds_exclude_blocked = popular_feeds_exclude_deleted.exclude(user__in=blocked_user_ids).exclude(id__in=reported_feed_ids)
+    popular_feeds_exclude_blocked = popular_feeds_exclude_deleted.exclude(user__in=excluded_user_ids).exclude(id__in=reported_feed_ids)
     popular_feeds = popular_feeds_exclude_blocked\
         .annotate(num_comments=Count('comment'), num_reactions=Count('reaction'))\
         .annotate(time_diff=ExpressionWrapper(current_time - F('created_at'), output_field=DurationField()))\
@@ -198,110 +206,72 @@ def recommend_feeds(request):
     except EmptyPage:
         return Response({'message': 'No more pages', 'data': []}, status=status.HTTP_200_OK)
 
-    # 유저가 신고한 댓글 ID 목록
-    reported_comment_ids = ReportedComment.objects.filter(reporter=request.user).values_list('comment', flat=True)
-
     # 데이터 구조화
     feed_entries = []
-    for feed, weight in feeds_page:
-        userprofile = feed.user
-        main_title = feed.main_id.main_title
-        sub_title = feed.sub_id.sub_title
-        content = feed.cont_id.content
-        success_count = feed.cont_id.success_count
-        is_following = Follow.objects.filter(followed_user=userprofile, following_user=request.user).exists()
-
-        comments_list = [
-            {
-                'username': comment.user.username, 
-                'comment': comment.comment, 
-                'upload_date': comment.created_at
-            } 
-            for comment in feed.comment_set.all() 
-            if comment.deleted_at is None
-            and comment.id not in reported_comment_ids
-            and comment.user.id not in blocked_user_ids
-        ]
-
-        reactions = Reaction.objects.filter(feed_id=feed.id).values_list('emoji_name', flat=True)
-        emoji_count = Counter(reactions)
-        user_reactions = Reaction.objects.filter(user=request.user, feed_id=feed.id).values_list('emoji_name', flat=True)
-
-        feed_entry = {
-            'userInfo': {
-                'profile_img': userprofile.user_image if userprofile else None,
-                'userPosition': userprofile.user_position if userprofile else None,
-                'success': userprofile.success_count if userprofile else None,
-                'userName': userprofile.username,
-                'id' : userprofile.id,
-                'is_following': is_following,
-            },
-            'feedInfo': {
-                'id': feed.id,
-                'main_title': main_title,
-                'sub_title': sub_title,
-                'content': content,
-                'success_count': success_count,
-                'post': feed.feed_contents,
-                'content_img': str(feed.feed_image),
-                'created_at': feed.created_at,
-                'tags': feed.feed_hash,
-                'emoji_count': dict(emoji_count),
-                'user_reactions': list(user_reactions),
-                'comment_info': comments_list,
-            }
-        }
+    for feed in feeds_page:
+        feed_entry = build_feeds_data(request, feed[0], reported_comment_ids, excluded_user_ids)
         feed_entries.append(feed_entry)
-
+        
     return Response(feed_entries)
 
 @api_view(['GET'])
 def selected_feed(request, feed_id):
+    current_user = request.user
+    
     try:
         feed = Feed.objects.get(id=feed_id, deleted_at__isnull=True)
-        userprofile = feed.user
-        main_title = feed.main_id.main_title
-        sub_title = feed.sub_id.sub_title
-        content = feed.cont_id.content
-        success_count = feed.cont_id.success_count
-        is_following = Follow.objects.filter(followed_user=userprofile, following_user=request.user).exists()
+        
+        # 제외 데이터 처리
+        reported_comment_ids = ReportedComment.objects.filter(reporter=current_user).values_list('comment', flat=True)
+        blocked_user_ids = BlockedUser.objects.filter(blocker=current_user).values_list('blocked', flat=True)
 
-        comments_list = [
-            {
-                'username': comment.user.username, 
-                'comment': comment.comment, 
-                'upload_date': comment.created_at
-            } 
-            for comment in feed.comment_set.all() 
-            if comment.deleted_at is None
-        ]
+        # 데이터 구조화
+        feed_data = build_feeds_data(request, feed, reported_comment_ids, blocked_user_ids)
 
-        feed_data = {
-            'userInfo': {
-                'profile_img': userprofile.user_image if userprofile else None,
-                'userPosition': userprofile.user_position if userprofile else None,
-                'success': userprofile.success_count if userprofile else None,
-                'userName': userprofile.username,
-                'id' : userprofile.id,
-                'is_following': is_following,
-            },
-            'feedInfo': {
-                'id': feed.id,
-                'main_title': main_title,
-                'sub_title': sub_title,
-                'content': content,
-                'success_count': success_count,
-                'post': feed.feed_contents,
-                'content_img': str(feed.feed_image),
-                'created_at': feed.created_at,
-                'tags': feed.feed_hash,
-                'emoji_count': feed.emoji_count,
-                'comment_info': comments_list
-            }
-        }
         return Response(feed_data, status=status.HTTP_200_OK)
     except Feed.DoesNotExist:
         return Response({'message': 'Feed not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+@api_view(['GET'])
+def search_feeds(request):
+    search_keyword = request.GET.get('keyword', '')
+    current_user = request.user
+
+    # 제외할 유저, 피드, 댓글
+    blocked_user_ids = BlockedUser.objects.filter(blocker=current_user).values_list('blocked', flat=True)
+    inactive_users_list = UserProfile.objects.filter(is_active=False).values_list('id', flat=True)
+    excluded_user_ids = set(list(blocked_user_ids) + list(inactive_users_list))
+    reported_feed_ids = ReportedFeed.objects.filter(reporter=current_user).values_list('feed', flat=True)
+    reported_comment_ids = ReportedComment.objects.filter(reporter=current_user).values_list('comment', flat=True)
+    
+    # 피드 찾기
+    user_filtered_feeds = Feed.objects.exclude(user_id__in=excluded_user_ids)
+    reported_feed_filtered_feeds = user_filtered_feeds.exclude(id__in=reported_feed_ids)
+    searched_feeds = reported_feed_filtered_feeds.filter(
+        Q(main_id__main_title__icontains=search_keyword) |
+        Q(sub_id__sub_title__icontains=search_keyword) |
+        Q(cont_id__content__icontains=search_keyword) |
+        Q(feed_contents__icontains=search_keyword)
+    ).select_related('user', 'main_id', 'sub_id', 'cont_id').prefetch_related('comment_set')
+
+    # 페이지네이션
+    default_page = 1
+    page = request.GET.get('page', default_page)
+    page_size = 10
+    paginator = Paginator(searched_feeds, page_size)
+    try:
+        feeds_page = paginator.page(page)
+    except EmptyPage:
+        return Response({'message': 'No more pages', 'data': []}, status=status.HTTP_200_OK)
+
+    # 데이터 구조화
+    feed_entries = []
+    for feed in feeds_page:
+        feed_entry = build_feeds_data(request, feed, reported_comment_ids, blocked_user_ids)
+        feed_entries.append(feed_entry)
+        
+    return Response(feed_entries)
+    
 
 # Get feed logs for a specific user
 @api_view(['GET'])
