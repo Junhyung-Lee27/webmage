@@ -373,7 +373,7 @@ def get_trending_users(request):
     # 페이지네이션
     default_page = 1
     page = request.GET.get('page', default_page)
-    page_size = 6
+    page_size = 3
     paginator = Paginator(trending_users, page_size)
     try:
         trending_users_page = paginator.page(page)
@@ -436,7 +436,7 @@ def get_familiar_users(request):
     # 페이지네이션
     default_page = 1
     page = request.GET.get('page', default_page)
-    page_size = 6
+    page_size = 3
     paginator = Paginator(familiar_users, page_size)
 
     try:
@@ -482,7 +482,7 @@ def get_active_users(request):
     # 페이지네이션
     default_page = 1
     page = request.GET.get('page', default_page)
-    page_size = 6
+    page_size = 3
     paginator = Paginator(active_users, page_size)
 
     try:
