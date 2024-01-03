@@ -10,6 +10,6 @@ urlpatterns = [
     path('mandamain/<int:manda_id>', views_mandas.select_mandalart, name='mandamain'),
     path('<int:user_id>/', views_mandas.manda_main_list, name='usermanda'),
     path('others/', views_mandas.others_manda_main_list, name='others'),
-    path('search/mandasimple/', views_mandas.search_manda_main_sub, name='search_mandasimple'),
-    # path('recommend/mandasimple/', views_mandas.recommend_manda_main_sub, name='recommend_mandasimple')
+    path('search/mandasimple/', views_mandas.search_sub_mandas, name='search_mandasimple'),
+    path('recommend/mandasimple/', views_mandas.recommend_mandas, name='recommend_mandasimple')
 ]

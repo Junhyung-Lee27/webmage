@@ -12,6 +12,9 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from ..models import MandaMain, MandaSub, MandaContent, UserProfile, BlockedUser, Follow
 from ..serializers.manda_serializer import *
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import json
 
 @swagger_auto_schema(method='post', request_body=MandaMainSerializer)
 @api_view(['POST'])
@@ -289,7 +292,7 @@ def manda_main_sub(request, manda_id):
     return Response(main_entry, status=status.HTTP_200_OK)
 
 @api_view(['GET'])
-def search_manda_main_sub(request):
+def search_sub_mandas(request):
     search_keyword = request.GET.get('keyword', '')
     current_user = request.user
 
@@ -337,3 +340,72 @@ def search_manda_main_sub(request):
         manda_simples.append(main_entry)
 
     return Response(manda_simples, status=status.HTTP_200_OK)
+
+# 유사한 핵심목표 찾는 함수
+def find_similar_mandas(input_title, all_mandas, title_field_name, similarity_threshold=0.3):
+    if input_title is None:
+        return []
+    
+    # TF-IDF 벡터라이저 초기화 및 학습
+    vectorizer = TfidfVectorizer()
+    valid_titles = [title for title in [getattr(manda, title_field_name) for manda in all_mandas] if title and title.strip()]
+    tfidf_matrix = vectorizer.fit_transform([input_title] + valid_titles)
+
+    # 입력된 제목과 다른 제목들 간의 코사인 유사도 계산
+    cosine_similarities = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:]).flatten()
+
+    # 유사도가 가장 높은 상위 10개 인덱스 추출
+    similar_indices = cosine_similarities.argsort()[:-11:-1]
+
+    # 유사도 임계값 이상인 객체 필터링
+    filtered_indices = [idx for idx in similar_indices if cosine_similarities[idx] > similarity_threshold]
+    converted_similar_indices = [int(idx) for idx in filtered_indices]
+
+    # 유사한 객체 반환 (None이거나 공백인 제목을 가진 객체 제외)
+    return [all_mandas[i] for i in converted_similar_indices if all_mandas[i] and getattr(all_mandas[i], title_field_name) and getattr(all_mandas[i], title_field_name).strip()]
+
+@api_view(['POST'])
+def recommend_mandas(request):
+    try:
+        input_data = json.loads(request.body)
+        # 핵심 목표 또는 세부 목표 제목 확인
+        input_title = input_data.get('main_title') or input_data.get('sub_title')
+        title_type = 'main_title' if 'main_title' in input_data else 'sub_title'
+
+        # 핵심 목표 추천
+        if title_type == 'main_title':
+            current_user = request.user
+            recent_mandas = MandaMain.objects.exclude(user=current_user).order_by('-id')[:500]
+            similar_mandas = find_similar_mandas(input_title, recent_mandas, title_type)
+
+            results = []
+            for manda in similar_mandas:
+                subs = MandaSub.objects.filter(main_id=manda)
+                subs_data = subs.values('id', 'sub_title')
+                results.append({
+                    'main_id': manda.id,
+                    'main_title': manda.main_title,
+                    'sub_mandas': list(subs_data)
+                })
+
+        # 세부 목표 추천
+        elif title_type == 'sub_title':
+            requested_sub_id = input_data.get('sub_id')
+            recent_sub_mandas = MandaSub.objects.exclude(id=requested_sub_id).order_by('-id')[:500]
+            similar_sub_mandas = find_similar_mandas(input_title, recent_sub_mandas, title_type)
+
+            results = []
+            for sub_manda in similar_sub_mandas:
+                contents = MandaContent.objects.filter(sub_id=sub_manda)
+                content_data = contents.values('id', 'content')
+                results.append({
+                    'sub_id': sub_manda.id,
+                    'sub_title': sub_manda.sub_title,
+                    'contents': list(content_data)
+                })
+
+        return Response(results, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
