@@ -30,6 +30,7 @@ class MandaMain(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)  # 외래키로 User 모델 연결
     success = models.BooleanField(default=False)  # 성공 여부 (True/False)
     main_title = models.CharField(max_length=100)  # 메인 타이틀, 필요에 따라 길이 조절 가능
+    main_title_morphs = models.TextField(null=True, blank=True) # 형태소 분석 결과
     created_at = models.DateTimeField(auto_now_add=True, null=True)  # 만다라트 생성일시
     deleted_at = models.DateTimeField(null=True)  # 만다라트 삭제일시
 
@@ -40,23 +41,28 @@ class MandaMain(models.Model):
         return self.main_title
     
     def save(self, *args, **kwargs):
+        # 객체가 새로 생성되는 경우에만 MandaSub와 MandaContent 객체 생성
+        is_new = self.pk is None
+        
         super(MandaMain, self).save(*args, **kwargs)
 
-        # MandaSub 객체 생성
-        for _ in range(8):
-            MandaSub.objects.create(main_id=self)
-
-        # MandaContent 객체 생성
-        sub_instances = MandaSub.objects.filter(main_id=self)
-        for sub_instance in sub_instances:
+        if is_new:
+            # MandaSub 객체 생성
             for _ in range(8):
-                MandaContent.objects.create(sub_id=sub_instance)
+                MandaSub.objects.create(main_id=self)
+
+            # MandaContent 객체 생성
+            sub_instances = MandaSub.objects.filter(main_id=self)
+            for sub_instance in sub_instances:
+                for _ in range(8):
+                    MandaContent.objects.create(sub_id=sub_instance)
 
 #세부목표
 class MandaSub(models.Model):
     main_id = models.ForeignKey(MandaMain, on_delete=models.CASCADE)  # MandaMain 모델과 외래키로 연결
     success_count = models.IntegerField(default=0)  # 성공 여부, bigint 타입
     sub_title = models.CharField(max_length=100, null=True)  # 서브 타이틀, 최대 길이 50
+    sub_title_morphs = models.TextField(null=True, blank=True) # 형태소 분석 결과
 
     class Meta:
         ordering = ['id']

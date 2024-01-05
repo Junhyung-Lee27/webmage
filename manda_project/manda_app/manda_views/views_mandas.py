@@ -1,7 +1,5 @@
 from django.core.paginator import Paginator, EmptyPage
-from django.contrib.auth.models import User
-from django.db.models import Max, Q
-from django.http import HttpResponse, JsonResponse
+from django.db.models import Max
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from rest_framework import status
@@ -14,7 +12,9 @@ from ..models import MandaMain, MandaSub, MandaContent, UserProfile, BlockedUser
 from ..serializers.manda_serializer import *
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from gensim.models.doc2vec import Doc2Vec, TaggedDocument
 import json
+from konlpy.tag import Mecab
 
 @swagger_auto_schema(method='post', request_body=MandaMainSerializer)
 @api_view(['POST'])
@@ -25,6 +25,10 @@ def manda_main_create(request):
 
     if serializer.is_valid():
         serializer.save(user=user)
+
+        manda_main = MandaMain.objects.get(id=serializer.data['id'])
+        manda_main.main_title_morphs = analyze_morphs(manda_main.main_title)
+        manda_main.save()
         
         manda_sub_objects = MandaSub.objects.filter(main_id=serializer.data['id'])
         manda_sub_serializer = MandaSubSerializer(manda_sub_objects, many=True)
@@ -41,6 +45,7 @@ def manda_main_create(request):
         return Response(response_data, status=status.HTTP_201_CREATED)
     
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 @swagger_auto_schema(
     method='patch',
@@ -78,9 +83,12 @@ def update_manda_main(request):
                 manda_main.success = new_success
 
             manda_main.main_title = main_title
+            manda_main.main_title_morphs = analyze_morphs(manda_main.main_title)
             manda_main.save()
+            serializer = MandaMainSerializer(manda_main)
             
-        return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 """
@@ -126,6 +134,7 @@ def update_manda_subs(request):
                 manda_sub.success = new_success
 
             manda_sub.sub_title = new_value
+            manda_sub.sub_title_morphs = analyze_morphs(manda_sub.sub_title)
             manda_sub.save()
 
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -341,45 +350,54 @@ def search_sub_mandas(request):
 
     return Response(manda_simples, status=status.HTTP_200_OK)
 
-# 유사한 핵심목표 찾는 함수
-def find_similar_mandas(input_title, all_mandas, title_field_name, similarity_threshold=0.3):
-    if input_title is None:
-        return []
+# 형태소 분석 함수
+def analyze_morphs(text):
+    mecab = Mecab(r'C:\\mecab\\mecab-ko-dic')
+    # 명사만 추출
+    nouns = mecab.nouns(text)
+    return ' '.join(nouns)
+
+# TF-IDF 및 Cosine 유사도 계산 함수
+def compute_cosine_similarity(input_text, documents):
+    tfidf_vectorizer = TfidfVectorizer()
+    tfidf_matrix = tfidf_vectorizer.fit_transform(documents)
+
+    input_vec = tfidf_vectorizer.transform([input_text])
+    cosine_similarities = cosine_similarity(input_vec, tfidf_matrix)[0]
+
+    valid_similarity = 0.2 # 유효 유사도 값 설정
+    valid_indexes_scores = [(i-1, score) for i, score in enumerate(cosine_similarities) if score >= valid_similarity]
+    valid_indexes_scores.sort(key=lambda x: x[1], reverse=True)  # 점수에 따라 내림차순 정렬
     
-    # TF-IDF 벡터라이저 초기화 및 학습
-    vectorizer = TfidfVectorizer()
-    valid_titles = [title for title in [getattr(manda, title_field_name) for manda in all_mandas] if title and title.strip()]
-    tfidf_matrix = vectorizer.fit_transform([input_title] + valid_titles)
-
-    # 입력된 제목과 다른 제목들 간의 코사인 유사도 계산
-    cosine_similarities = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:]).flatten()
-
-    # 유사도가 가장 높은 상위 10개 인덱스 추출
-    similar_indices = cosine_similarities.argsort()[:-11:-1]
-
-    # 유사도 임계값 이상인 객체 필터링
-    filtered_indices = [idx for idx in similar_indices if cosine_similarities[idx] > similarity_threshold]
-    converted_similar_indices = [int(idx) for idx in filtered_indices]
-
-    # 유사한 객체 반환 (None이거나 공백인 제목을 가진 객체 제외)
-    return [all_mandas[i] for i in converted_similar_indices if all_mandas[i] and getattr(all_mandas[i], title_field_name) and getattr(all_mandas[i], title_field_name).strip()]
+    return valid_indexes_scores[1:11]
 
 @api_view(['POST'])
 def recommend_mandas(request):
     try:
-        input_data = json.loads(request.body)
         # 핵심 목표 또는 세부 목표 제목 확인
+        input_data = json.loads(request.body)
         input_title = input_data.get('main_title') or input_data.get('sub_title')
         title_type = 'main_title' if 'main_title' in input_data else 'sub_title'
+
+        # 새로 입력된 제목의 형태소 분석
+        analyzed_input = analyze_morphs(input_title)
 
         # 핵심 목표 추천
         if title_type == 'main_title':
             current_user = request.user
-            recent_mandas = MandaMain.objects.exclude(user=current_user).order_by('-id')[:500]
-            similar_mandas = find_similar_mandas(input_title, recent_mandas, title_type)
+            recent_mandas = MandaMain.objects.exclude(user=current_user).exclude(main_title__isnull=True).exclude(main_title='').order_by('-id')[:500]
+            
+            # 형태소 분석된 제목 가져오기
+            documents = [manda.main_title_morphs for manda in recent_mandas]
+            documents.insert(0, analyzed_input)
 
+            # 유사도 계산 및 상위 10개 선택
+            similar_indexes_scores = compute_cosine_similarity(analyzed_input, documents)
+
+            # 결과 생성
             results = []
-            for manda in similar_mandas:
+            for idx, score in similar_indexes_scores:
+                manda = recent_mandas[idx]
                 subs = MandaSub.objects.filter(main_id=manda)
                 subs_data = subs.values('id', 'sub_title')
                 results.append({
@@ -390,12 +408,24 @@ def recommend_mandas(request):
 
         # 세부 목표 추천
         elif title_type == 'sub_title':
-            requested_sub_id = input_data.get('sub_id')
-            recent_sub_mandas = MandaSub.objects.exclude(id=requested_sub_id).order_by('-id')[:500]
-            similar_sub_mandas = find_similar_mandas(input_title, recent_sub_mandas, title_type)
+            current_user = request.user
+            
+            # 불필요한 세부 목표 제외
+            user_main_mandas = MandaMain.objects.filter(user=current_user)
+            user_sub_ids = MandaSub.objects.filter(main_id__in=user_main_mandas).values_list('id', flat=True)
+            recent_sub_mandas = MandaSub.objects.exclude(id__in=user_sub_ids).exclude(sub_title__isnull=True).exclude(sub_title='').order_by('-id')[:500]
 
+            # 형태소 분석된 제목 가져오기
+            documents = [manda.sub_title_morphs for manda in recent_sub_mandas]
+            documents.insert(0, analyzed_input)
+
+            # 유사도 계산 및 상위 10개 선택
+            similar_indexes_scores = compute_cosine_similarity(analyzed_input, documents)
+
+            # 결과 생성
             results = []
-            for sub_manda in similar_sub_mandas:
+            for idx, score in similar_indexes_scores:
+                sub_manda = recent_sub_mandas[idx]
                 contents = MandaContent.objects.filter(sub_id=sub_manda)
                 content_data = contents.values('id', 'content')
                 results.append({
@@ -408,4 +438,3 @@ def recommend_mandas(request):
 
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
