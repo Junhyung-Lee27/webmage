@@ -33,6 +33,8 @@ class MandaMain(models.Model):
     main_title_morphs = models.TextField(null=True, blank=True) # 형태소 분석 결과
     created_at = models.DateTimeField(auto_now_add=True, null=True)  # 만다라트 생성일시
     deleted_at = models.DateTimeField(null=True)  # 만다라트 삭제일시
+    PRIVACY_CHOICES = (('public', '전체 공개'), ('followers', '팔로우 공개'), ('private', '나만 보기'),)
+    privacy = models.CharField(max_length=10, choices=PRIVACY_CHOICES, default='public', verbose_name="피드 공개 범위")
 
     class Meta:
         ordering = ['id']
@@ -95,6 +97,8 @@ class Feed(models.Model):
     deleted_at = models.DateTimeField(null=True)  # 피드 삭제일시
     feed_hash = models.CharField(max_length=255)  # 피드 해시값, 필요에 따라 길이 조절 가능
     emoji_count = JSONField(blank=True, null=True, default=dict)
+    PRIVACY_CHOICES = (('public', '전체 공개'), ('followers', '팔로우 공개'), ('private', '나만 보기'),)
+    feed_privacy = models.CharField(max_length=10, choices=PRIVACY_CHOICES, default='public', verbose_name="피드 공개 범위")
 
     def __str__(self):
         return self.feed_contents

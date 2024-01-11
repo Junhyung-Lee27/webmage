@@ -5,7 +5,7 @@ class MandaMainSerializer(serializers.ModelSerializer):
     user = serializers.ReadOnlyField(source='user.id')
     class Meta:
         model = MandaMain
-        fields = ('id', 'user', 'main_title', 'success')
+        fields = ('id', 'user', 'main_title', 'success', 'privacy')
 
     def validate_main_title(self, value):
         if len(value) > 50:

@@ -89,6 +89,20 @@ def update_manda_main(request):
             
             return Response(serializer.data, status=status.HTTP_200_OK)
         
+        if 'privacy' in request.data:
+            main_id = request.data['id']
+            new_privacy = request.data['privacy']
+
+            try:
+                manda_main = MandaMain.objects.get(pk=main_id, user=user)
+            except MandaMain.DoesNotExist:
+                return Response(f"MandaMain with ID {main_id} does not exist for the current user.", status=status.HTTP_404_NOT_FOUND)
+            
+            manda_main.privacy = new_privacy
+            manda_main.save()
+
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 """
@@ -207,6 +221,18 @@ def select_mandalart(request, manda_id):
     manda_main = MandaMain.objects.get(id=manda_id)
     manda_main_serializer = MandaMainViewSerializer(manda_main)
 
+    # 요청자(request.user)의 권한 확인
+    if manda_main.user == request.user:
+        pass
+    elif manda_main.user != request.user:
+        if manda_main.privacy == 'public':
+            pass
+        elif manda_main.privacy == 'followers':
+            if not Follow.objects.filter(following_user=manda_main.user, followed_user=request.user).exists():
+                return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+        elif manda_main.privacy == 'private':
+            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN) 
+
     # 1. MandaSub와 MandaContent의 success_count 최대값을 구함
     max_success_count_sub = MandaSub.objects.aggregate(Max('success_count'))['success_count__max'] or 0
     max_success_count_content = MandaContent.objects.aggregate(Max('success_count'))['success_count__max'] or 0
@@ -229,7 +255,8 @@ def select_mandalart(request, manda_id):
     response_data = {
         'main': manda_main_serializer.data,
         'subs': manda_sub_serializer.data,
-        'contents': manda_content_serializer.data
+        'contents': manda_content_serializer.data,
+        'privacy': manda_main.privacy
     }
 
     return Response(response_data, status=status.HTTP_200_OK)

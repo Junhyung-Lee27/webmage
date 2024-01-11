@@ -62,7 +62,8 @@ def build_feeds_data(request, feed, reported_comment_ids, excluded_user_ids):
             'tags': feed.feed_hash,
             'emoji_count': dict(emoji_count),
             'user_reactions': list(user_reactions),
-            'comment_info': comments_list
+            'comment_info': comments_list,
+            'feed_privacy': feed.feed_privacy
         }
     }
     return feed_entry
@@ -72,6 +73,18 @@ def build_feeds_data(request, feed, reported_comment_ids, excluded_user_ids):
 def return_feed(request, user_id):
     user_id = request.GET.get('query')
     feeds = Feed.objects.filter(user=user_id, user__deleted_at__isnull=True, deleted_at__isnull=True).order_by('-id')
+
+    # 피드 공개여부 필터링
+    requested_user = get_object_or_404(UserProfile, id=user_id)
+    if requested_user != request.user:
+        
+        # '팔로우 공개' 피드 필터링
+        following_user_ids = Follow.objects.filter(following_user=requested_user).values_list('followed_user_id', flat=True)
+        if request.user.id not in following_user_ids:
+            feeds = feeds.exclude(feed_privacy='followers')
+
+        # '나만 보기' 피드 필터링
+        feeds = feeds.exclude(feed_privacy='private')
 
     # 페이지네이션
     default_page = 1
@@ -195,12 +208,34 @@ def recommend_feeds(request):
 
     # 가중치 정렬
     recommended_feeds = sorted(feed_weights.items(), key=lambda x: x[1], reverse=True)
+
+    # 피드 공개여부 필터링
+    feeds = []
+    for recommended_feed in recommended_feeds:
+        feed = recommended_feed[0]
+        # 피드 작성자 != 피드 요청자일 경우
+        if feed.user != request.user:
+            
+            # '팔로우 공개' 피드 필터링
+            if feed.feed_privacy == 'followers':
+                if Follow.objects.filter(following_user=feed.user, followed_user=request.user).exists():
+                    feeds.append(feed)
+                    continue
+                    
+            # '전체 공개' 피드 포함
+            if feed.feed_privacy == 'public':
+                feeds.append(feed)
+                continue
+
+        # 피드 작성자 == 피드 요청자일 경우
+        else:
+            feeds.append(feed)
   
     # 페이지네이션
     default_page = 1
     page = request.GET.get('page', default_page)
     page_size = 10
-    paginator = Paginator(recommended_feeds, page_size)
+    paginator = Paginator(feeds, page_size)
     try:
         feeds_page = paginator.page(page)
     except EmptyPage:
@@ -209,7 +244,7 @@ def recommend_feeds(request):
     # 데이터 구조화
     feed_entries = []
     for feed in feeds_page:
-        feed_entry = build_feeds_data(request, feed[0], reported_comment_ids, excluded_user_ids)
+        feed_entry = build_feeds_data(request, feed, reported_comment_ids, excluded_user_ids)
         feed_entries.append(feed_entry)
         
     return Response(feed_entries)
@@ -254,11 +289,32 @@ def search_feeds(request):
         Q(feed_contents__icontains=search_keyword)
     ).select_related('user', 'main_id', 'sub_id', 'cont_id').prefetch_related('comment_set')
 
+    # 피드 공개여부 필터링
+    feeds = []
+    for feed in searched_feeds:
+        # 피드 작성자 != 피드 요청자일 경우
+        if feed.user != request.user:
+
+            # '팔로우 공개' 피드 필터링
+            if feed.feed_privacy == 'followers':
+                if Follow.objects.filter(following_user=feed.user, followed_user=request.user).exists():
+                    feeds.append(feed)
+                    continue
+
+            # '전체 공개' 피드 포함
+            if feed.feed_privacy == 'public':
+                feeds.append(feed)
+                continue
+        
+        # 피드 작성자 == 피드 요청자일 경우
+        else:
+            feeds.append(feed)
+
     # 페이지네이션
     default_page = 1
     page = request.GET.get('page', default_page)
     page_size = 10
-    paginator = Paginator(searched_feeds, page_size)
+    paginator = Paginator(feeds, page_size)
     try:
         feeds_page = paginator.page(page)
     except EmptyPage:
