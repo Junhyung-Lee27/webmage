@@ -29,6 +29,7 @@ class Follow(models.Model):
 class MandaMain(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)  # 외래키로 User 모델 연결
     success = models.BooleanField(default=False)  # 성공 여부 (True/False)
+    success_count = models.IntegerField(default=0)
     main_title = models.CharField(max_length=100)  # 메인 타이틀, 필요에 따라 길이 조절 가능
     main_title_morphs = models.TextField(null=True, blank=True) # 형태소 분석 결과
     created_at = models.DateTimeField(auto_now_add=True, null=True)  # 만다라트 생성일시

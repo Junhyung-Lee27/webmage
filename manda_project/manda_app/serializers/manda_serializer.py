@@ -5,7 +5,7 @@ class MandaMainSerializer(serializers.ModelSerializer):
     user = serializers.ReadOnlyField(source='user.id')
     class Meta:
         model = MandaMain
-        fields = ('id', 'user', 'main_title', 'success', 'privacy')
+        fields = ('id', 'user', 'main_title', 'success', 'success_count', 'privacy')
 
     def validate_main_title(self, value):
         if len(value) > 50:
@@ -13,26 +13,26 @@ class MandaMainSerializer(serializers.ModelSerializer):
         return value
 
 class MandaContentSerializer(serializers.ModelSerializer):
-    color_percentile = serializers.FloatField(read_only=True)
+    success_stage = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = MandaContent
-        fields = ('id', 'sub_id', 'success_count', 'content', 'color_percentile')
+        fields = ('id', 'sub_id', 'success_count', 'success_stage', 'content')
 
 class MandaSubSerializer(serializers.ModelSerializer):
+    success_stage = serializers.IntegerField(read_only=True)
     content = MandaContentSerializer(many=True, read_only=True)
-    color_percentile = serializers.FloatField(read_only=True)
     
     class Meta:
         model = MandaSub
-        fields = ('id', 'main_id', 'success_count', 'sub_title', 'content', 'color_percentile')
-
+        fields = ('id', 'main_id', 'success_count', 'success_stage', 'sub_title', 'content')
+ 
 class MandaMainViewSerializer(serializers.ModelSerializer):
     sub_instances = MandaSubSerializer(many=True, read_only=True)
 
     class Meta:
         model = MandaMain
-        fields = ('id', 'user', 'success', 'main_title', 'sub_instances')
+        fields = ('id', 'user', 'success', 'success_count', 'main_title', 'sub_instances')
 
 class MandaSubUpdateSerializer(serializers.Serializer):
     id = serializers.IntegerField()

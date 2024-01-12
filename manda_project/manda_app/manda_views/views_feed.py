@@ -4,7 +4,7 @@ from django.core.paginator import Paginator, EmptyPage
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from ..models import UserProfile, Follow, Feed, Comment, Reaction, ReportedFeed, BlockedUser, ReportedComment, MandaSub, MandaContent
+from ..models import UserProfile, Follow, Feed, Comment, Reaction, ReportedFeed, BlockedUser, ReportedComment, MandaSub, MandaContent, MandaMain
 from ..serializers.comment_serializer import CommentSerializer  # You will need to create these serializers
 from ..serializers.feed_serializer import FeedSerializer
 from drf_yasg.utils import swagger_auto_schema
@@ -344,12 +344,15 @@ def write_feed(request):
     if serializer.is_valid():
         serializer.save(user=request.user)
 
+        manda_main = MandaMain.objects.get(id=serializer.data['main_id'])
         manda_sub = MandaSub.objects.get(id=serializer.data['sub_id'])
         manda_cont = MandaContent.objects.get(id=serializer.data['cont_id'])
 
+        manda_main.success_count += 1
         manda_sub.success_count += 1
         manda_cont.success_count += 1
 
+        manda_main.save()
         manda_sub.save()
         manda_cont.save()
 

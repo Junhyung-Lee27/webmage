@@ -210,6 +210,22 @@ def manda_main_delete(request, manda_id):
 
     return Response({'message': 'MandaMain soft deleted successfully.'}, status=status.HTTP_200_OK)
 
+# success_count의 stage 계산 함수
+def calculate_stage(success_count, max_success_count):
+    if max_success_count == 0 or success_count == 0:
+        return 0  # Default 0 to avoid division by zero
+    ratio = success_count / max_success_count
+    if ratio <= 0.2:
+        return 1
+    elif ratio <= 0.4:
+        return 2
+    elif ratio <= 0.6:
+        return 3
+    elif ratio <= 0.8:
+        return 4
+    else:
+        return 5
+
 @swagger_auto_schema(
     method='get',
     manual_parameters=[
@@ -234,22 +250,30 @@ def select_mandalart(request, manda_id):
             return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN) 
 
     # 1. MandaSub와 MandaContent의 success_count 최대값을 구함
-    max_success_count_sub = MandaSub.objects.aggregate(Max('success_count'))['success_count__max'] or 0
-    max_success_count_content = MandaContent.objects.aggregate(Max('success_count'))['success_count__max'] or 0
-    max_success_count = max(max_success_count_sub, max_success_count_content)
+    # max_success_count_sub = MandaSub.objects.aggregate(Max('success_count'))['success_count__max'] or 0
+    # max_success_count_content = MandaContent.objects.aggregate(Max('success_count'))['success_count__max'] or 0
+    # max_success_count = max(max_success_count_sub, max_success_count_content)
 
     # 2. MandaSub 객체 각각의 success_count 백분율 계산
     manda_sub_objects = MandaSub.objects.filter(main_id=manda_main)
-    for subs in manda_sub_objects:
-        percentile = subs.success_count / max_success_count if max_success_count else 0
-        subs.color_percentile = round(percentile * 100, 2)
+    for idx, sub in enumerate(manda_sub_objects):
+        # percentile = subs.success_count / max_success_count if max_success_count else 0
+        # subs.color_percentile = round(percentile * 100, 2)
+        sub_stage = calculate_stage(sub.success_count, manda_main.success_count)
+        # manda_sub_objects[idx]['success_stage'] = sub_stage
+        sub.success_stage = sub_stage
+
     manda_sub_serializer = MandaSubSerializer(manda_sub_objects, many=True)
 
     # 3. MandaContent 객체 각각의 success_count 백분율 계산
     manda_content_objects = MandaContent.objects.filter(sub_id__in=manda_sub_objects)
-    for obj in manda_content_objects:
-        percentile = obj.success_count / max_success_count if max_success_count else 0
-        obj.color_percentile = round(percentile * 100, 2)
+    for idx, obj in enumerate(manda_content_objects):
+        # percentile = obj.success_count / max_success_count if max_success_count else 0
+        # obj.color_percentile = round(percentile * 100, 2)
+        obj_stage = calculate_stage(obj.success_count, manda_main.success_count)
+        # manda_content_objects[idx]['success_stage'] = obj_stage
+        obj.success_stage = obj_stage
+
     manda_content_serializer = MandaContentSerializer(manda_content_objects, many=True)
 
     response_data = {
