@@ -217,14 +217,12 @@ def calculate_stage(success_count, max_success_count):
     ratio = success_count / max_success_count
     if ratio <= 0.2:
         return 1
-    elif ratio <= 0.4:
+    elif ratio <= 0.5:
         return 2
-    elif ratio <= 0.6:
-        return 3
     elif ratio <= 0.8:
-        return 4
+        return 3
     else:
-        return 5
+        return 4
 
 @swagger_auto_schema(
     method='get',
@@ -247,31 +245,20 @@ def select_mandalart(request, manda_id):
             if not Follow.objects.filter(following_user=manda_main.user, followed_user=request.user).exists():
                 return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         elif manda_main.privacy == 'private':
-            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN) 
-
-    # 1. MandaSub와 MandaContent의 success_count 최대값을 구함
-    # max_success_count_sub = MandaSub.objects.aggregate(Max('success_count'))['success_count__max'] or 0
-    # max_success_count_content = MandaContent.objects.aggregate(Max('success_count'))['success_count__max'] or 0
-    # max_success_count = max(max_success_count_sub, max_success_count_content)
+            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
 
     # 2. MandaSub 객체 각각의 success_count 백분율 계산
     manda_sub_objects = MandaSub.objects.filter(main_id=manda_main)
-    for idx, sub in enumerate(manda_sub_objects):
-        # percentile = subs.success_count / max_success_count if max_success_count else 0
-        # subs.color_percentile = round(percentile * 100, 2)
+    for sub in manda_sub_objects:
         sub_stage = calculate_stage(sub.success_count, manda_main.success_count)
-        # manda_sub_objects[idx]['success_stage'] = sub_stage
         sub.success_stage = sub_stage
 
     manda_sub_serializer = MandaSubSerializer(manda_sub_objects, many=True)
 
     # 3. MandaContent 객체 각각의 success_count 백분율 계산
     manda_content_objects = MandaContent.objects.filter(sub_id__in=manda_sub_objects)
-    for idx, obj in enumerate(manda_content_objects):
-        # percentile = obj.success_count / max_success_count if max_success_count else 0
-        # obj.color_percentile = round(percentile * 100, 2)
-        obj_stage = calculate_stage(obj.success_count, manda_main.success_count)
-        # manda_content_objects[idx]['success_stage'] = obj_stage
+    for obj in manda_content_objects:
+        obj_stage = calculate_stage(obj.success_count, obj.sub_id.success_count)
         obj.success_stage = obj_stage
 
     manda_content_serializer = MandaContentSerializer(manda_content_objects, many=True)
