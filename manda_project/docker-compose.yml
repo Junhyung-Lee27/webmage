@@ -1,0 +1,15 @@
+version: '3'
+services:
+  django:
+    build: .
+    command: gunicorn manda_project.wsgi:application --bind 0.0.0.0:8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+  redis:
+    image: "redis:6.2.14"
+    ports:
+      - "6379:6379"
