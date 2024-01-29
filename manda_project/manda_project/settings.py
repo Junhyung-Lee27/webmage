@@ -30,10 +30,7 @@ AWS_SECRET_ACCESS_KEY = secrets['AWS_SECRET_ACCESS_KEY']
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = [
-    '*',
-]
-
+ALLOWED_HOSTS = ['*']
 
 # Application definition
 
@@ -178,7 +175,7 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [("127.0.0.1", 6379)],
+            "hosts": [("redis", 6379)],
         },
         "MIDDLEWARE": [
             "manda_project.mymiddleware.TokenAuthMiddleware",  # Custom middleware
